@@ -6,6 +6,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Номер версии для релиза, например 0.2.0 (пусто — только пробная сборка)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -34,7 +39,9 @@ jobs:
     steps:
       - id: v
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "name=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "name=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           else
             echo "name=0.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
@@ -117,7 +124,7 @@ jobs:
           path: build/installer/Zhizn-Setup-*.exe
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
     needs: [android, windows, version]
     runs-on: ubuntu-latest
     steps:
@@ -133,5 +140,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           name: Жизнь ${{ needs.version.outputs.name }}
+          tag_name: v${{ needs.version.outputs.name }}
+          target_commitish: ${{ github.sha }}
           body_path: notes.md
           files: out/*
