@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:android_intent_plus/android_intent.dart';
 
 import '../../data/models.dart';
 import '../../services/services.dart';
@@ -331,6 +331,15 @@ class _SyncIcon extends StatelessWidget {
   }
 }
 
+/// Открыть системный экран настроек Android для этого приложения.
+Future<void> _openAndroidSettings(String action) async {
+  try {
+    await AndroidIntent(action: action, data: 'package:by.zhizn.zhizn').launch();
+  } catch (_) {
+    await const AndroidIntent(action: 'android.settings.SETTINGS').launch();
+  }
+}
+
 /// Настройка телефона Tecno (HiOS): иначе напоминания опаздывают.
 class PhoneSetupScreen extends StatefulWidget {
   const PhoneSetupScreen({super.key});
@@ -345,12 +354,12 @@ class _PhoneSetupScreenState extends State<PhoneSetupScreen> {
   Widget build(BuildContext context) {
     final steps = [
       ('Разрешить уведомления', 'Без этого напоминания не появятся.', () async => S.notifier.requestPermissions()),
-      ('Точные будильники', 'Чтобы напоминание приходило минута в минуту.', () async => Permission.scheduleExactAlarm.request()),
-      ('Без ограничений батареи', 'HiOS закрывает приложения в фоне. Выберите «Не ограничивать».', () async => Permission.ignoreBatteryOptimizations.request()),
+      ('Точные будильники', 'Чтобы напоминание приходило минута в минуту.', () async => S.notifier.requestExactAlarms()),
+      ('Без ограничений батареи', 'HiOS закрывает приложения в фоне. Выберите «Не ограничивать».', () async => _openAndroidSettings('android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS')),
       (
         'Автозапуск',
         'Откроются настройки приложения. Включите «Автозапуск» (или «Запуск приложений» → вручную, все переключатели).',
-        () async => openAppSettings()
+        () async => _openAndroidSettings('android.settings.APPLICATION_DETAILS_SETTINGS')
       ),
     ];
     return Scaffold(

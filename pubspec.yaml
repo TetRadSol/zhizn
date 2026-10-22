@@ -33,7 +33,7 @@ dependencies:
   pasteboard: ^0.5.0
   # Android
   receive_sharing_intent: ^1.9.0
-  permission_handler: ^13.0.2
+  android_intent_plus: ^6.1.0
 
 dev_dependencies:
   flutter_test:

@@ -206,6 +206,8 @@ class Notifier {
   AndroidFlutterLocalNotificationsPlugin? get _android =>
       plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
 
+  Future<void> requestExactAlarms() async => _android?.requestExactAlarmsPermission();
+
   Future<bool> requestPermissions() async {
     final a = _android;
     if (a == null) return true;

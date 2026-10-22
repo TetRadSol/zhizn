@@ -15,7 +15,8 @@ val keyProps = Properties().apply {
 
 android {
     namespace = "by.zhizn.zhizn"
-    compileSdk = flutter.compileSdkVersion
+    // receive_sharing_intent требует SDK 37
+    compileSdk = maxOf(flutter.compileSdkVersion, 37)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
