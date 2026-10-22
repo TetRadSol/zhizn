@@ -45,7 +45,7 @@ class MoreScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.sync),
             title: const Text('Синхронизация'),
-            subtitle: Text(S.sync.configured ? 'Подключено · ${S.sync.lastOkText}' : 'Не подключена — данные только на этом устройстве'),
+            subtitle: Text(S.sync.configured ? 'По Wi-Fi · последний обмен ${S.sync.lastOkText}' : 'Не настроена — данные только на этом устройстве'),
             onTap: () => open(const SyncScreen()),
           ),
           ListTile(
@@ -141,7 +141,7 @@ class MoreScreen extends StatelessWidget {
   }
 }
 
-/// Подключение синхронизации через личного Telegram-бота.
+/// Синхронизация напрямую по Wi-Fi: на ноутбуке — код, на телефоне — поиск ноутбука.
 class SyncScreen extends StatefulWidget {
   const SyncScreen({super.key});
   @override
@@ -149,30 +149,58 @@ class SyncScreen extends StatefulWidget {
 }
 
 class _SyncScreenState extends State<SyncScreen> {
-  final _token = TextEditingController();
-  bool _checking = false;
-  String? _error;
+  List<String> _addresses = const [];
+  List<Found>? _found;
+  bool _searching = false;
+  final _manual = TextEditingController();
 
-  Future<void> _connect() async {
-    if (_token.text.trim().isEmpty) {
-      setState(() => _error = 'Вставьте ключ бота');
-      return;
+  @override
+  void initState() {
+    super.initState();
+    if (S.sync.isServer) {
+      S.sync.addresses().then((a) {
+        if (mounted) setState(() => _addresses = a);
+      });
+    } else if (!S.sync.configured) {
+      _search();
     }
-    setState(() {
-      _checking = true;
-      _error = null;
-    });
-    final err = await S.sync.connect(_token.text);
+  }
+
+  Future<void> _search() async {
+    setState(() => _searching = true);
+    final f = await S.sync.discover();
     if (!mounted) return;
     setState(() {
-      _checking = false;
-      _error = err;
+      _found = f;
+      _searching = false;
     });
-    if (err == null) {
-      _token.clear();
-      S.sync.start();
-      toast(context, 'Синхронизация подключена');
-    }
+  }
+
+  Future<void> _pair(Found f) async {
+    final code = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Связать с «${f.name}»'),
+        content: TextField(
+          controller: code,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          maxLength: 6,
+          style: const TextStyle(fontSize: 28, letterSpacing: 8),
+          decoration: const InputDecoration(labelText: 'Код с экрана ноутбука', counterText: ''),
+          onSubmitted: (_) => Navigator.pop(context, true),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Связать')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final err = await S.sync.pair(f, code.text);
+    if (!mounted) return;
+    toast(context, err ?? 'Готово! Телефон и ноутбук связаны');
   }
 
   @override
@@ -184,69 +212,151 @@ class _SyncScreenState extends State<SyncScreen> {
         listenable: S.sync,
         builder: (context, _) => ListView(
           padding: const EdgeInsets.all(16),
-          children: [
-            if (S.sync.configured) ...[
-              Card(
-                child: ListTile(
-                  leading: Icon(S.sync.lastError == null ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
-                      color: S.sync.lastError == null ? cs.primary : cs.error),
-                  title: Text(S.sync.lastError ?? 'Всё синхронизировано'),
-                  subtitle: Text('Бот @${S.sync.botName} · последний раз ${S.sync.lastOkText}'
-                      '${S.sync.pending > 0 ? ' · не отправлено: ${S.sync.pending}' : ''}'),
-                  trailing: S.sync.busy
-                      ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                      : IconButton(tooltip: 'Синхронизировать сейчас', icon: const Icon(Icons.sync), onPressed: S.sync.run),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Синхронизация идёт сама: при открытии, через 20 секунд после изменений и каждые 10 минут. '
-                'Чат с ботом можно отключить по звуку и не открывать — это служебный чат. '
-                'Не открепляйте в нём сообщение «zhizn-index.json».',
-                style: TextStyle(color: cs.onSurfaceVariant),
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(onPressed: S.sync.disconnect, child: const Text('Отключить на этом устройстве')),
-              ),
-              const Divider(height: 32),
-              const Text('Подключить другого бота', style: TextStyle(fontWeight: FontWeight.w600)),
-            ] else ...[
-              const Text(
-                'Телефон и ноутбук обмениваются изменениями через вашего личного Telegram-бота. '
-                'Это бесплатно. На оба устройства вводится один и тот же ключ бота.',
-              ),
-              const SizedBox(height: 16),
-              const _Step(
-                1,
-                'Создайте бота (один раз)',
-                'В Telegram откройте @BotFather → /newbot → придумайте имя (например, Жизнь) и адрес, '
-                    'оканчивающийся на bot (например, zhizn_tetrad_bot). BotFather пришлёт ключ вида 123456:ABC…',
-                'Открыть @BotFather',
-                'https://t.me/BotFather',
-              ),
-              const _Step(2, 'Напишите своему боту', 'Откройте нового бота по ссылке от BotFather и нажмите «Старт».', null, null),
-              const _Step(3, 'Вставьте ключ сюда', 'На втором устройстве — тот же ключ. Перед этим снова напишите боту что угодно.', null, null),
-            ],
-            const SizedBox(height: 8),
-            TextField(
-              controller: _token,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Ключ бота', hintText: '123456789:AA…', border: OutlineInputBorder()),
-              onSubmitted: (_) => _connect(),
-            ),
-            if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: TextStyle(color: cs.error))),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _checking ? null : _connect,
-              icon: _checking ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.link),
-              label: const Text('Проверить и подключить'),
-            ),
-          ],
+          children: S.sync.isServer ? _laptop(context, cs) : _phone(context, cs),
         ),
       ),
     );
+  }
+
+  List<Widget> _laptop(BuildContext context, ColorScheme cs) {
+    final peers = S.sync.peers.values.toList();
+    return [
+      const Text(
+        'Телефон и ноутбук обмениваются изменениями напрямую, когда подключены к одной сети Wi-Fi. '
+        'Интернет и аккаунты не нужны, данные никуда не уходят.',
+      ),
+      const SizedBox(height: 16),
+      if (peers.isNotEmpty) ...[
+        Card(
+          child: ListTile(
+            leading: Icon(Icons.phonelink, color: cs.primary),
+            title: Text(S.sync.lastError ?? 'Последний обмен: ${S.sync.lastOkText}'),
+            subtitle: Text('Связано: ${peers.map((p) => p.name).join(', ')}'),
+          ),
+        ),
+        for (final p in peers)
+          ListTile(
+            leading: const Icon(Icons.smartphone),
+            title: Text(p.name),
+            trailing: TextButton(onPressed: () => S.sync.unpair(p.device), child: const Text('Отвязать')),
+          ),
+        const Divider(height: 32),
+      ],
+      Text(peers.isEmpty ? 'Связать телефон' : 'Связать ещё один телефон', style: Theme.of(context).textTheme.titleMedium),
+      const SizedBox(height: 8),
+      const Text('На телефоне откройте «Ещё → Синхронизация → Найти ноутбук» и введите код:'),
+      const SizedBox(height: 12),
+      Center(
+        child: SelectableText(
+          S.sync.pairingCode(),
+          style: TextStyle(fontSize: 44, fontWeight: FontWeight.w800, letterSpacing: 10, color: cs.primary),
+        ),
+      ),
+      const SizedBox(height: 4),
+      Center(child: Text('Код действует 10 минут', style: TextStyle(color: cs.onSurfaceVariant))),
+      const SizedBox(height: 16),
+      if (_addresses.isNotEmpty)
+        Text('Адрес ноутбука: ${_addresses.join(', ')}', style: TextStyle(color: cs.onSurfaceVariant)),
+      if (!S.sync.serving)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(S.sync.lastError ?? 'Приём подключений не запущен', style: TextStyle(color: cs.error)),
+        ),
+      const SizedBox(height: 16),
+      Card(
+        color: cs.secondaryContainer,
+        child: const Padding(
+          padding: EdgeInsets.all(12),
+          child: Text(
+            'Если Windows спросит «Разрешить доступ?» — нажмите «Разрешить» для частных сетей. '
+            'Если телефон не находит ноутбук: в параметрах Windows → Сеть → ваша сеть Wi-Fi выберите тип «Частная».',
+          ),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _phone(BuildContext context, ColorScheme cs) {
+    final peer = S.sync.peers.values.firstOrNull;
+    if (peer != null) {
+      return [
+        Card(
+          child: ListTile(
+            leading: Icon(S.sync.lastError == null ? Icons.phonelink : Icons.phonelink_off, color: S.sync.lastError == null ? cs.primary : cs.outline),
+            title: Text(S.sync.lastError ?? 'Всё синхронизировано'),
+            subtitle: Text('Ноутбук «${peer.name}» · последний обмен ${S.sync.lastOkText}'),
+            trailing: S.sync.busy
+                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                : IconButton(tooltip: 'Обменяться сейчас', icon: const Icon(Icons.sync), onPressed: S.sync.run),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Обмен идёт сам, когда телефон и ноутбук в одной сети Wi-Fi: при открытии приложения, '
+          'через 20 секунд после изменений и каждые 5 минут. На ноутбуке «Жизнь» должна быть запущена (она живёт в трее).',
+          style: TextStyle(color: cs.onSurfaceVariant),
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(onPressed: () => S.sync.unpair(peer.device), child: const Text('Отвязать ноутбук')),
+        ),
+      ];
+    }
+    return [
+      const Text(
+        'Телефон и ноутбук обмениваются изменениями напрямую, когда подключены к одной сети Wi-Fi. '
+        'Интернет и аккаунты не нужны.',
+      ),
+      const SizedBox(height: 16),
+      const _Step(1, 'Откройте «Жизнь» на ноутбуке', '«Ещё → Синхронизация». Там будет код из 6 цифр.', null, null),
+      const _Step(2, 'Подключите телефон к той же сети Wi-Fi', 'Что и ноутбук.', null, null),
+      const _Step(3, 'Выберите ноутбук ниже и введите код', 'Это нужно один раз.', null, null),
+      const SizedBox(height: 8),
+      Row(children: [
+        Text('Ноутбуки в этой сети', style: Theme.of(context).textTheme.titleMedium),
+        const Spacer(),
+        _searching
+            ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
+            : TextButton.icon(onPressed: _search, icon: const Icon(Icons.search), label: const Text('Найти ноутбук')),
+      ]),
+      if (_found != null && _found!.isEmpty && !_searching)
+        Text('Не нашёл. Проверьте, что «Жизнь» на ноутбуке запущена и оба устройства в одной сети.', style: TextStyle(color: cs.onSurfaceVariant)),
+      for (final f in _found ?? const <Found>[])
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.laptop_windows),
+            title: Text(f.name),
+            subtitle: Text(f.host),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _pair(f),
+          ),
+        ),
+      const SizedBox(height: 16),
+      ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        title: const Text('Ввести адрес ноутбука вручную'),
+        children: [
+          Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _manual,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(hintText: '192.168.1.5', helperText: 'Адрес показан на ноутбуке под кодом', border: OutlineInputBorder()),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: () {
+                final h = _manual.text.trim();
+                if (h.isNotEmpty) _pair(Found('', 'ноутбук', h, lanPort));
+              },
+              child: const Text('Далее'),
+            ),
+          ]),
+        ],
+      ),
+    ];
   }
 }
 

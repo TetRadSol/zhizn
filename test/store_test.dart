@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zhizn/data/models.dart';
 import 'package:zhizn/data/store.dart';
+import 'package:zhizn/logic/excel_import.dart';
 import 'package:zhizn/logic/recurrence.dart';
 import 'package:zhizn/services/life.dart';
 import 'package:zhizn/services/reminders.dart';
@@ -127,5 +128,17 @@ void main() {
       final plan = planReminders(life, DateTime(2026, 10, 22, 5), phone: true, days: 1);
       expect(plan.map((r) => r.at), containsAll([DateTime(2026, 10, 22, 6, 30), DateTime(2026, 10, 22, 21, 30)]));
     });
+  });
+
+  test('перенос из Excel: 30 привычек и 6 целей, без дублей на втором устройстве', () {
+    final tel = Store.memory(deviceId: 'tel-a');
+    final pc = Store.memory(deviceId: 'pc-b');
+    expect(importExcelTracker(tel), (habits: 30, goals: 6));
+    importExcelTracker(pc);
+    exchange(tel, pc);
+    exchange(pc, tel);
+    expect(pc.ofKind(Kinds.habit).length, 30);
+    expect(tel.ofKind(Kinds.goal).length, 6);
+    expect(importExcelTracker(tel), (habits: 0, goals: 0));
   });
 }

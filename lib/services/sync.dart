@@ -1,289 +1,443 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 
 import '../data/models.dart';
 import '../data/store.dart';
+import 'lan_crypto.dart';
 import 'life.dart';
 
-/// Доступ к Telegram Bot API. В тестах подменяется на поддельный чат.
-abstract class TgApi {
-  /// Вызвать метод; возвращает поле result. Ошибка Telegram — [TgError].
-  Future<dynamic> call(String method, [Map<String, String> params = const {}]);
+const lanPort = 47821;
+const lanDiscoveryPort = 47822;
 
-  /// Вызвать метод с файлом (sendDocument, editMessageMedia).
-  Future<dynamic> upload(String method, Map<String, String> params, String field, String filename, List<int> bytes);
-
-  /// Скачать файл по file_id.
-  Future<List<int>> download(String fileId);
-}
-
-class TgError implements Exception {
-  TgError(this.code, this.message);
-  final int code;
-  final String message;
-  @override
-  String toString() => 'Telegram $code: $message';
-}
-
-class HttpTgApi implements TgApi {
-  HttpTgApi(this.token);
-  final String token;
-
-  Uri _u(String method) => Uri.parse('https://api.telegram.org/bot$token/$method');
-
-  dynamic _result(http.Response r) {
-    final j = jsonDecode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
-    if (j['ok'] != true) throw TgError((j['error_code'] as num?)?.toInt() ?? r.statusCode, '${j['description']}');
-    return j['result'];
-  }
-
-  @override
-  Future<dynamic> call(String method, [Map<String, String> params = const {}]) async =>
-      _result(await http.post(_u(method), body: params).timeout(const Duration(seconds: 30)));
-
-  @override
-  Future<dynamic> upload(String method, Map<String, String> params, String field, String filename, List<int> bytes) async {
-    final req = http.MultipartRequest('POST', _u(method))
-      ..fields.addAll(params)
-      ..files.add(http.MultipartFile.fromBytes(field, bytes, filename: filename));
-    final r = await http.Response.fromStream(await req.send().timeout(const Duration(seconds: 90)));
-    return _result(r);
-  }
-
-  @override
-  Future<List<int>> download(String fileId) async {
-    final f = await call('getFile', {'file_id': fileId}) as Map<String, dynamic>;
-    final r = await http
-        .get(Uri.parse('https://api.telegram.org/file/bot$token/${f['file_path']}'))
-        .timeout(const Duration(seconds: 90));
-    if (r.statusCode != 200) throw TgError(r.statusCode, 'не удалось скачать файл');
-    return r.bodyBytes;
-  }
-}
-
-/// Обмен изменениями через вашего личного Telegram-бота.
-///
-/// Устройство отправляет свои новые изменения файлом в чат с ботом (без звука).
-/// Список всех таких файлов лежит в закреплённом сообщении «zhizn-index.json»:
-/// устройство дописывает туда свои файлы и скачивает чужие, которые ещё не применяло.
-/// Каждый раз устройство заново добавляет в список все свои файлы, поэтому, даже если
-/// два устройства обновят список одновременно, пропавшая строка вернётся при следующем обмене.
-class TgSyncEngine {
-  TgSyncEngine(this.store, this.api, this.chatId, {required this.filesDir, this.captures = const []});
-
+/// Логика обмена без сети: что отправить и как применить ответ.
+/// Отдельно от сокетов, чтобы проверять её автотестами.
+class LanExchange {
+  LanExchange(this.store, {required this.filesDir});
   final Store store;
-  final TgApi api;
-  final String chatId;
   final String filesDir;
-  final List<Capture> captures;
 
-  static const indexName = 'zhizn-index.json';
+  int _cursor(String key) => int.tryParse(store.getKv(key) ?? '') ?? 0;
 
-  List<Map<String, dynamic>> get _own =>
-      ((jsonDecode(store.getKv('tg_own') ?? '[]') as List)).map((e) => (e as Map).cast<String, dynamic>()).toList();
-  set _own(List<Map<String, dynamic>> v) => store.setKv('tg_own', jsonEncode(v));
-
-  Future<Map<String, dynamic>> _send(String name, List<int> bytes) async {
-    final m = await api.upload('sendDocument', {
-      'chat_id': chatId,
-      'disable_notification': 'true',
-      'caption': name,
-    }, 'document', name.split('/').last, bytes) as Map<String, dynamic>;
-    return {'n': name, 'id': (m['document'] as Map)['file_id']};
+  /// Телефон: собрать запрос для ноутбука [peer].
+  ({Map<String, dynamic> body, int sentUpTo}) request(String peer) {
+    final mine = store.opsAfter(_cursor('lan_sent:$peer'), exceptDevice: peer);
+    return (
+      body: {
+        'ops': mine.ops.map((o) => o.toJson()).toList(),
+        'since': _cursor('lan_recv:$peer'),
+        'files': localFiles(),
+      },
+      sentUpTo: mine.last,
+    );
   }
 
-  Future<void> run() async {
-    // 1. Отправить свои изменения
-    final own = _own;
-    final ops = store.pendingOps();
-    for (var i = 0; i < ops.length; i += 2000) {
-      final chunk = ops.sublist(i, i + 2000 > ops.length ? ops.length : i + 2000);
-      final name = 'log/${store.device}/${chunk.first.ts}-${chunk.last.ts}.jsonl';
-      final body = chunk.map((o) => jsonEncode(o.toJson())).join('\n');
-      own.add(await _send(name, utf8.encode(body)));
-      _own = own;
-      store.markFileApplied(name);
-      store.markPushed(chunk.map((o) => o.id));
-    }
-    // Вложения: фото, скриншоты, файлы (до 40 МБ — ограничение ботов 50 МБ)
-    for (final c in captures.take(200)) {
-      for (final f in c.files) {
-        final name = 'files/${f['local']}';
-        if (store.getKv('up:${f['local']}') != null) continue;
-        final file = File('$filesDir/files/${f['local']}');
-        if (!file.existsSync() || file.lengthSync() > 40 * 1024 * 1024) continue;
-        own.add(await _send(name, await file.readAsBytes()));
-        _own = own;
-        store.setKv('up:${f['local']}', '1');
-      }
-    }
-
-    // 2. Прочитать общий список файлов из закреплённого сообщения
-    final chat = await api.call('getChat', {'chat_id': chatId}) as Map<String, dynamic>;
-    final pinned = chat['pinned_message'] as Map<String, dynamic>?;
-    final pinnedDoc = pinned?['document'] as Map<String, dynamic>?;
-    var index = <Map<String, dynamic>>[];
-    int? indexMsg;
-    if (pinnedDoc != null && pinnedDoc['file_name'] == indexName) {
-      indexMsg = (pinned!['message_id'] as num).toInt();
-      final j = jsonDecode(utf8.decode(await api.download(pinnedDoc['file_id'] as String))) as Map<String, dynamic>;
-      index = ((j['files'] as List?) ?? const []).map((e) => (e as Map).cast<String, dynamic>()).toList();
-    }
-
-    // 3. Дописать свои файлы, если их там нет
-    final names = index.map((e) => e['n']).toSet();
-    final missing = own.where((e) => !names.contains(e['n'])).toList();
-    if (missing.isNotEmpty || indexMsg == null) {
-      final merged = [...index, ...missing];
-      final bytes = utf8.encode(jsonEncode({'v': 1, 'files': merged}));
-      if (indexMsg != null) {
-        await api.upload('editMessageMedia', {
-          'chat_id': chatId,
-          'message_id': '$indexMsg',
-          'media': jsonEncode({'type': 'document', 'media': 'attach://index'}),
-        }, 'index', indexName, bytes);
-      } else {
-        final m = await api.upload('sendDocument', {
-          'chat_id': chatId,
-          'disable_notification': 'true',
-          'caption': 'Список изменений «Жизни». Не открепляйте это сообщение.',
-        }, 'document', indexName, bytes) as Map<String, dynamic>;
-        await api.call('pinChatMessage', {
-          'chat_id': chatId,
-          'message_id': '${m['message_id']}',
-          'disable_notification': 'true',
-        });
-      }
-      index = merged;
-    }
-
-    // 4. Забрать чужие изменения и файлы
-    final monthAgo = DateTime.now().subtract(const Duration(days: 31));
-    final wantedFiles = {
-      for (final c in captures)
-        if (c.created.isAfter(monthAgo))
-          for (final f in c.files) f['local'] as String,
+  /// Ноутбук: принять изменения телефона [from] и отдать свои.
+  Map<String, dynamic> serve(String from, Map<String, dynamic> body) {
+    store.applyRemote([
+      for (final o in (body['ops'] as List)) Op.fromJson((o as Map).cast<String, dynamic>()),
+    ]);
+    final theirs = store.opsAfter((body['since'] as num).toInt(), exceptDevice: from);
+    return {
+      'ops': theirs.ops.map((o) => o.toJson()).toList(),
+      'cursor': theirs.last,
+      'files': localFiles(),
+      'more': theirs.last < store.lastRowid,
     };
-    final logs = index.where((e) => (e['n'] as String).startsWith('log/')).toList()
-      ..sort((a, b) => (a['n'] as String).compareTo(b['n'] as String));
-    for (final e in logs) {
-      final name = e['n'] as String;
-      if (store.isFileApplied(name)) continue;
-      final text = utf8.decode(await api.download(e['id'] as String));
-      store.applyRemote([
-        for (final line in const LineSplitter().convert(text))
-          if (line.trim().isNotEmpty) Op.fromJson(jsonDecode(line) as Map<String, dynamic>),
-      ]);
-      store.markFileApplied(name);
-    }
-    for (final e in index.where((e) => (e['n'] as String).startsWith('files/'))) {
-      final local = (e['n'] as String).substring(6);
-      final file = File('$filesDir/files/$local');
-      if (!wantedFiles.contains(local) || file.existsSync()) continue;
-      file.parent.createSync(recursive: true);
-      await file.writeAsBytes(await api.download(e['id'] as String));
-      store.setKv('up:$local', '1');
-    }
+  }
+
+  /// Телефон: применить ответ ноутбука.
+  void apply(String peer, Map<String, dynamic> resp, int sentUpTo) {
+    store.applyRemote([
+      for (final o in (resp['ops'] as List)) Op.fromJson((o as Map).cast<String, dynamic>()),
+    ]);
+    store.setKv('lan_recv:$peer', '${resp['cursor']}');
+    store.setKv('lan_sent:$peer', '$sentUpTo');
+  }
+
+  /// Имена вложений, которые есть на этом устройстве.
+  List<String> localFiles() {
+    final d = Directory('$filesDir/files');
+    if (!d.existsSync()) return const [];
+    return d.listSync().whereType<File>().map((f) => f.uri.pathSegments.last).toList();
   }
 }
 
-/// Синхронизация телефона и ноутбука через Telegram: настройки, расписание обменов, статус.
+class LanPeer {
+  LanPeer({required this.device, required this.name, required this.key, this.host, this.port = lanPort});
+  final String device;
+  final String name;
+  final String key; // base64
+  String? host;
+  int port;
+
+  Map<String, dynamic> toJson() => {'device': device, 'name': name, 'key': key, 'host': host, 'port': port};
+  factory LanPeer.fromJson(Map<String, dynamic> j) => LanPeer(
+    device: j['device'] as String,
+    name: (j['name'] as String?) ?? '',
+    key: j['key'] as String,
+    host: j['host'] as String?,
+    port: (j['port'] as num?)?.toInt() ?? lanPort,
+  );
+
+  Box get box => Box(base64Decode(key));
+}
+
+/// Найденный в сети ноутбук.
+class Found {
+  Found(this.device, this.name, this.host, this.port);
+  final String device;
+  final String name;
+  final String host;
+  final int port;
+}
+
+/// Синхронизация телефона и ноутбука напрямую по Wi-Fi.
+///
+/// Ноутбук всё время слушает домашнюю сеть. Телефон находит его, один раз
+/// связывается по шестизначному коду и дальше сам обменивается изменениями,
+/// когда оба в одной сети. Всё, что передаётся, зашифровано общим ключом.
 class Sync extends ChangeNotifier {
-  Sync(this.life, {TgApi Function(String token)? api}) : _api = api ?? HttpTgApi.new {
+  Sync(this.life, {bool? server}) : isServer = server ?? !Platform.isAndroid {
     life.store.addListener(_onLocalChange);
   }
 
   final Life life;
-  final TgApi Function(String token) _api;
   Store get store => life.store;
+  LanExchange get _x => LanExchange(store, filesDir: life.filesDir);
+
+  /// Ноутбук принимает подключения, телефон подключается.
+  final bool isServer;
 
   bool busy = false;
   String? lastError;
   DateTime? get lastOk => DateTime.tryParse(store.getKv('sync_ok') ?? '');
   Timer? _debounce;
   Timer? _periodic;
+  HttpServer? _http;
+  RawDatagramSocket? _udp;
 
-  String get token => store.getKv('tg_token') ?? '';
-  String get chatId => store.getKv('tg_chat') ?? '';
-  String get botName => store.getKv('tg_bot') ?? '';
-  bool get configured => token.isNotEmpty && chatId.isNotEmpty;
+  String get deviceName => isServer ? Platform.localHostname : 'Телефон';
 
-  /// Проверить ключ бота и найти чат с вами (нужно перед этим написать боту).
-  /// Возвращает текст ошибки или null.
-  Future<String?> connect(String token) async {
-    token = token.trim();
-    final api = _api(token);
-    try {
-      final me = await api.call('getMe') as Map<String, dynamic>;
-      final updates = (await api.call('getUpdates', {'limit': '100'}) as List).cast<Map<String, dynamic>>();
-      String? chat;
-      for (final u in updates.reversed) {
-        final m = (u['message'] ?? u['edited_message']) as Map<String, dynamic>?;
-        final c = m?['chat'] as Map<String, dynamic>?;
-        if (c != null && c['type'] == 'private') {
-          chat = '${c['id']}';
-          break;
-        }
+  // ---------- Связанные устройства ----------
+
+  Map<String, LanPeer> get peers {
+    final raw = store.getKv('lan_peers');
+    if (raw == null) return {};
+    return (jsonDecode(raw) as Map).map((k, v) => MapEntry(k as String, LanPeer.fromJson((v as Map).cast<String, dynamic>())));
+  }
+
+  void _savePeers(Map<String, LanPeer> p) {
+    store.setKv('lan_peers', jsonEncode(p.map((k, v) => MapEntry(k, v.toJson()))));
+    notifyListeners();
+  }
+
+  bool get configured => peers.isNotEmpty;
+
+  void unpair(String device) {
+    final p = peers..remove(device);
+    _savePeers(p);
+  }
+
+  // ---------- Запуск ----------
+
+  void start() {
+    if (isServer) {
+      _serve();
+    } else {
+      _periodic?.cancel();
+      _periodic = Timer.periodic(const Duration(minutes: 5), (_) => run());
+      run();
+    }
+  }
+
+  void _onLocalChange() {
+    if (isServer || !configured) return;
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(seconds: 20), run);
+  }
+
+  // ---------- Ноутбук: приём подключений ----------
+
+  String? _code;
+  DateTime? _codeUntil;
+
+  /// Код для связи с телефоном, действует 10 минут.
+  String pairingCode() {
+    if (_code == null || DateTime.now().isAfter(_codeUntil!)) {
+      _code = (100000 + Random.secure().nextInt(900000)).toString();
+      _codeUntil = DateTime.now().add(const Duration(minutes: 10));
+    }
+    return _code!;
+  }
+
+  /// Адреса ноутбука в сети — на случай, если телефон не найдёт его сам.
+  Future<List<String>> addresses() async {
+    final out = <String>[];
+    for (final i in await NetworkInterface.list(type: InternetAddressType.IPv4)) {
+      for (final a in i.addresses) {
+        if (!a.isLoopback) out.add(a.address);
       }
-      if (chat == null) return 'Не вижу вашего сообщения. Откройте бота @${me['username']} в Telegram, нажмите «Старт» или напишите что угодно и попробуйте снова.';
-      store.setKv('tg_token', token);
-      store.setKv('tg_chat', chat);
-      store.setKv('tg_bot', '${me['username']}');
-      notifyListeners();
+    }
+    return out;
+  }
+
+  bool get serving => _http != null;
+
+  Future<void> _serve() async {
+    if (_http != null) return;
+    try {
+      _http = await HttpServer.bind(InternetAddress.anyIPv4, lanPort, shared: true);
+      _http!.listen(_handle);
+      lastError = null;
+    } catch (e) {
+      lastError = 'Не удалось открыть порт $lanPort: $e';
+    }
+    try {
+      _udp = await RawDatagramSocket.bind(InternetAddress.anyIPv4, lanDiscoveryPort, reuseAddress: true);
+      _udp!.listen((ev) {
+        if (ev != RawSocketEvent.read) return;
+        final d = _udp!.receive();
+        if (d == null || utf8.decode(d.data, allowMalformed: true) != 'ZHIZN?') return;
+        final reply = utf8.encode('ZHIZN!${jsonEncode({'device': store.device, 'name': deviceName, 'port': lanPort})}');
+        _udp!.send(reply, d.address, d.port);
+      });
+    } catch (e) {
+      debugPrint('Поиск по сети недоступен: $e');
+    }
+    notifyListeners();
+  }
+
+  Future<void> _handle(HttpRequest req) async {
+    try {
+      final body = await req.fold<List<int>>([], (a, b) => a..addAll(b));
+      final path = req.uri.path;
+      if (path == '/pair' && req.method == 'POST') {
+        return await _reply(req, utf8.encode(jsonEncode(_pair(jsonDecode(utf8.decode(body)) as Map<String, dynamic>))));
+      }
+      final peer = peers[req.headers.value('x-device')];
+      if (peer == null) return await _reply(req, utf8.encode('{"error":"unknown"}'), status: 403);
+      final box = peer.box;
+      if (path == '/sync' && req.method == 'POST') {
+        final open = box.open(body);
+        if (open == null) return await _reply(req, const [], status: 403);
+        final resp = _x.serve(peer.device, jsonDecode(utf8.decode(open)) as Map<String, dynamic>);
+        store.setKv('sync_ok', DateTime.now().toIso8601String());
+        lastError = null;
+        notifyListeners();
+        return await _reply(req, box.seal(utf8.encode(jsonEncode(resp))));
+      }
+      final name = req.uri.queryParameters['n'] ?? '';
+      if (name.isEmpty || name.contains('/') || name.contains('\\') || name.contains('..')) {
+        return await _reply(req, const [], status: 400);
+      }
+      final file = File('${life.filesDir}/files/$name');
+      if (path == '/file' && req.method == 'GET') {
+        if (!file.existsSync()) return await _reply(req, const [], status: 404);
+        return await _reply(req, box.seal(await file.readAsBytes()));
+      }
+      if (path == '/file' && req.method == 'POST') {
+        final open = box.open(body);
+        if (open == null) return await _reply(req, const [], status: 403);
+        file.parent.createSync(recursive: true);
+        await file.writeAsBytes(open);
+        return await _reply(req, const []);
+      }
+      return await _reply(req, const [], status: 404);
+    } catch (e) {
+      try {
+        await _reply(req, utf8.encode('$e'), status: 500);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _reply(HttpRequest req, List<int> body, {int status = 200}) async {
+    req.response.statusCode = status;
+    req.response.add(body);
+    await req.response.close();
+  }
+
+  /// Телефон доказывает, что знает код, и получает общий ключ (зашифрованный кодом).
+  Map<String, dynamic> _pair(Map<String, dynamic> j) {
+    final code = _code;
+    if (code == null || DateTime.now().isAfter(_codeUntil!)) return {'error': 'Код устарел. Откройте на ноутбуке «Синхронизация» заново.'};
+    final nonce = base64Decode(j['nonce'] as String);
+    final device = j['device'] as String;
+    final want = Hmac(sha256, utf8.encode(code)).convert([...nonce, ...utf8.encode(device)]).toString();
+    if (want != j['proof']) return {'error': 'Неверный код'};
+    final key = Box.randomBytes(32);
+    final p = peers;
+    p[device] = LanPeer(device: device, name: (j['name'] as String?) ?? 'Телефон', key: base64Encode(key));
+    _savePeers(p);
+    _code = null;
+    final wrap = Box(sha256.convert([...utf8.encode(code), ...nonce]).bytes);
+    return {'device': store.device, 'name': deviceName, 'key': base64Encode(wrap.seal(key))};
+  }
+
+  // ---------- Телефон: поиск, связь, обмен ----------
+
+  /// Найти ноутбуки в этой сети (широковещательный запрос).
+  Future<List<Found>> discover({Duration wait = const Duration(seconds: 2)}) async {
+    final found = <String, Found>{};
+    RawDatagramSocket? s;
+    try {
+      s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      s.broadcastEnabled = true;
+      s.listen((ev) {
+        if (ev != RawSocketEvent.read) return;
+        final d = s!.receive();
+        if (d == null) return;
+        final t = utf8.decode(d.data, allowMalformed: true);
+        if (!t.startsWith('ZHIZN!')) return;
+        try {
+          final j = jsonDecode(t.substring(6)) as Map<String, dynamic>;
+          found[j['device'] as String] = Found(j['device'] as String, j['name'] as String, d.address.address, (j['port'] as num).toInt());
+        } catch (_) {}
+      });
+      final msg = utf8.encode('ZHIZN?');
+      for (var i = 0; i < 3; i++) {
+        s.send(msg, InternetAddress('255.255.255.255'), lanDiscoveryPort);
+        await Future.delayed(wait ~/ 3);
+      }
+    } catch (e) {
+      debugPrint('Поиск не удался: $e');
+    } finally {
+      s?.close();
+    }
+    return found.values.toList();
+  }
+
+  final _client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+
+  Future<(int, List<int>)> _post(String host, int port, String path, List<int> body, {String? device, String method = 'POST'}) async {
+    final req = await _client.openUrl(method, Uri(scheme: 'http', host: host, port: port, path: path.split('?').first, query: path.contains('?') ? path.split('?').last : null));
+    if (device != null) req.headers.set('x-device', device);
+    if (method == 'POST') req.add(body);
+    final resp = await req.close().timeout(const Duration(seconds: 60));
+    final bytes = await resp.fold<List<int>>([], (a, b) => a..addAll(b));
+    return (resp.statusCode, bytes);
+  }
+
+  /// Связаться с ноутбуком по коду. Возвращает текст ошибки или null.
+  Future<String?> pair(Found f, String code) async {
+    code = code.replaceAll(RegExp(r'\D'), '');
+    final nonce = Box.randomBytes(16);
+    final proof = Hmac(sha256, utf8.encode(code)).convert([...nonce, ...utf8.encode(store.device)]).toString();
+    try {
+      final (status, body) = await _post(f.host, f.port, '/pair', utf8.encode(jsonEncode({
+        'device': store.device,
+        'name': deviceName,
+        'nonce': base64Encode(nonce),
+        'proof': proof,
+      })));
+      if (status != 200) return 'Ноутбук ответил $status';
+      final j = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+      if (j['error'] != null) return j['error'] as String;
+      final wrap = Box(sha256.convert([...utf8.encode(code), ...nonce]).bytes);
+      final key = wrap.open(base64Decode(j['key'] as String));
+      if (key == null) return 'Неверный код';
+      _savePeers({
+        j['device'] as String: LanPeer(device: j['device'] as String, name: j['name'] as String, key: base64Encode(key), host: f.host, port: f.port),
+      });
+      unawaited(run());
       return null;
-    } on TgError catch (e) {
-      return e.code == 401 || e.code == 404 ? 'Ключ бота не подходит. Скопируйте его из @BotFather целиком.' : 'Telegram: ${e.message}';
     } on SocketException {
-      return 'Нет интернета';
+      return 'Ноутбук не отвечает. Проверьте, что «Жизнь» на нём запущена и оба устройства в одной сети Wi-Fi';
     } on TimeoutException {
-      return 'Telegram не отвечает';
+      return 'Ноутбук не отвечает';
     } catch (e) {
       return 'Ошибка: $e';
     }
   }
 
-  void disconnect() {
-    store.setKv('tg_token', null);
-    store.setKv('tg_chat', null);
-    notifyListeners();
-  }
-
-  void start() {
-    _periodic?.cancel();
-    _periodic = Timer.periodic(const Duration(minutes: 10), (_) => run());
-    run();
-  }
-
-  void _onLocalChange() {
-    if (!configured) return;
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(seconds: 20), run);
-  }
-
-  /// Один полный обмен: отправить своё, забрать чужое.
+  /// Один обмен с ноутбуком. На ноутбуке ничего не делает — он ждёт телефон.
   Future<void> run() async {
-    if (!configured || busy) return;
+    if (isServer || !configured) return;
+    if (busy) {
+      // Обмен уже идёт — повторить сразу после него
+      _again ??= Completer<void>();
+      return _again!.future;
+    }
     busy = true;
     notifyListeners();
+    final peer = peers.values.first;
     try {
-      await TgSyncEngine(store, _api(token), chatId, filesDir: life.filesDir, captures: life.captures).run();
+      try {
+        await _exchange(peer);
+      } on SocketException {
+        // Адрес ноутбука мог смениться — ищем заново
+        final again = (await discover()).where((f) => f.device == peer.device).firstOrNull;
+        if (again == null) throw const _NotHome();
+        peer
+          ..host = again.host
+          ..port = again.port;
+        _savePeers({peer.device: peer});
+        await _exchange(peer);
+      }
       store.setKv('sync_ok', DateTime.now().toIso8601String());
       lastError = null;
-    } on TgError catch (e) {
-      lastError = e.code == 401 ? 'Ключ бота больше не действует' : 'Telegram: ${e.message}';
-    } on SocketException {
-      lastError = 'Нет интернета — синхронизирую позже';
+    } on _NotHome {
+      lastError = 'Ноутбук не в этой сети — обменяюсь, когда будете дома';
     } on TimeoutException {
-      lastError = 'Telegram не отвечает — синхронизирую позже';
+      lastError = 'Ноутбук не отвечает';
     } catch (e) {
       lastError = 'Ошибка синхронизации: $e';
     } finally {
       busy = false;
       notifyListeners();
+      final again = _again;
+      _again = null;
+      if (again != null) unawaited(run().whenComplete(again.complete));
+    }
+  }
+
+  Completer<void>? _again;
+
+  Future<void> _exchange(LanPeer peer) async {
+    final host = peer.host;
+    if (host == null) throw const SocketException('нет адреса');
+    final box = peer.box;
+    final x = _x;
+    Map<String, dynamic> resp;
+    var rounds = 0;
+    var sentAll = false;
+    do {
+      final r = x.request(peer.device);
+      sentAll = r.sentUpTo >= store.lastRowid;
+      final (status, body) = await _post(host, peer.port, '/sync', box.seal(utf8.encode(jsonEncode(r.body))), device: store.device);
+      if (status == 403) throw Exception('ноутбук не узнал телефон — свяжите устройства заново');
+      if (status != 200) throw Exception('ноутбук ответил $status');
+      final open = box.open(body);
+      if (open == null) throw Exception('ответ ноутбука не прошёл проверку');
+      resp = jsonDecode(utf8.decode(open)) as Map<String, dynamic>;
+      x.apply(peer.device, resp, r.sentUpTo);
+    } while ((resp['more'] == true || !sentAll) && ++rounds < 50);
+
+    // Вложения за последний месяц: недостающие забрать, свои отдать
+    final theirs = ((resp['files'] as List?) ?? const []).cast<String>().toSet();
+    final mine = x.localFiles().toSet();
+    final monthAgo = DateTime.now().subtract(const Duration(days: 31));
+    final wanted = {
+      for (final c in life.captures)
+        if (c.created.isAfter(monthAgo))
+          for (final f in c.files) f['local'] as String,
+    };
+    for (final n in wanted) {
+      final f = File('${life.filesDir}/files/$n');
+      if (theirs.contains(n) && !mine.contains(n)) {
+        final (status, body) = await _post(host, peer.port, '/file?n=${Uri.encodeQueryComponent(n)}', const [], device: store.device, method: 'GET');
+        final open = status == 200 ? box.open(body) : null;
+        if (open != null) {
+          f.parent.createSync(recursive: true);
+          await f.writeAsBytes(open);
+        }
+      } else if (mine.contains(n) && !theirs.contains(n)) {
+        await _post(host, peer.port, '/file?n=${Uri.encodeQueryComponent(n)}', box.seal(await f.readAsBytes()), device: store.device);
+      }
     }
   }
 
@@ -291,14 +445,19 @@ class Sync extends ChangeNotifier {
   void dispose() {
     _debounce?.cancel();
     _periodic?.cancel();
+    _http?.close(force: true);
+    _udp?.close();
     life.store.removeListener(_onLocalChange);
     super.dispose();
   }
 }
 
+class _NotHome implements Exception {
+  const _NotHome();
+}
+
 /// Подписи для экрана настроек.
 extension SyncInfo on Sync {
-  int get pending => store.pendingOps().length;
   String get lastOkText {
     final t = lastOk;
     if (t == null) return 'ещё не было';

@@ -5,6 +5,7 @@ import '../../services/life.dart';
 import '../../services/services.dart';
 import '../widgets/common.dart';
 import '../widgets/task_tile.dart';
+import 'more.dart';
 import 'task_editor.dart';
 
 /// Все дела списком: просрочено, сегодня, завтра, неделя, позже, без срока.
@@ -132,9 +133,14 @@ class _TasksScreenState extends State<TasksScreen> {
                   final g = goals[i];
                   return ListTile(
                     leading: const Icon(Icons.flag_outlined),
+                    onTap: () => openEntityEditor(context, g.id),
                     title: Text(g['title'] as String? ?? ''),
                     subtitle: Text(
-                      '${Sphere.byId(g['sphere'] as String?)?.label ?? ''} · этапы появятся с Джарвисом',
+                      [
+                        Sphere.byId(g['sphere'] as String?)?.label ?? '',
+                        if (g['measure'] != null) 'измеряем: ${g['measure']}${g['target'] != null ? ', цель ${g['target']}' : ''}',
+                        if (g['due'] != null) 'до ${dayLabel(parseYmd(g['due'] as String)!)}',
+                      ].where((x) => x.isNotEmpty).join(' · '),
                     ),
                   );
                 },

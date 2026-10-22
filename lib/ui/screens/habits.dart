@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models.dart';
+import '../../logic/excel_import.dart';
 import '../../services/services.dart';
 import '../widgets/common.dart';
 
@@ -46,8 +47,18 @@ class HabitsScreen extends StatelessWidget {
                 const EmptyHint(
                   icon: Icons.repeat,
                   title: 'Привычек пока нет',
-                  text: 'Добавьте кнопкой «Привычка» или напишите «привычка: протеин». '
-                      '30 привычек из Excel перенесём, когда пришлёте файл.',
+                  text: 'Добавьте кнопкой «Привычка» или напишите «привычка: протеин».',
+                ),
+              if (!excelImported(S.life.store))
+                Center(
+                  child: FilledButton.tonalIcon(
+                    icon: const Icon(Icons.table_view_outlined),
+                    label: const Text('Перенести 30 привычек и 6 целей из Excel-трекера'),
+                    onPressed: () {
+                      final r = importExcelTracker(S.life.store);
+                      toast(context, 'Перенесено: привычек ${r.habits}, целей ${r.goals}');
+                    },
+                  ),
                 ),
               if (habits.isNotEmpty)
                 Padding(

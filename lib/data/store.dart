@@ -245,6 +245,33 @@ class Store extends ChangeNotifier {
     s.close();
   }
 
+  /// Изменения, записанные в эту базу после [rowid] (в порядке поступления),
+  /// кроме пришедших с [exceptDevice]. Возвращает и номер последнего.
+  ({List<Op> ops, int last}) opsAfter(int rowid, {String? exceptDevice, int limit = 5000}) {
+    final rows = db.select(
+      'SELECT rowid AS r, * FROM ops WHERE rowid > ? ORDER BY rowid LIMIT ?',
+      [rowid, limit],
+    );
+    var last = rowid;
+    final ops = <Op>[];
+    for (final r in rows) {
+      last = r['r'] as int;
+      if (r['device'] == exceptDevice) continue;
+      ops.add(Op(
+        id: r['id'] as String,
+        device: r['device'] as String,
+        ts: r['ts'] as int,
+        entity: r['entity'] as String,
+        kind: r['kind'] as String,
+        field: r['field'] as String,
+        value: jsonDecode(r['value'] as String),
+      ));
+    }
+    return (ops: ops, last: last);
+  }
+
+  int get lastRowid => (db.select('SELECT MAX(rowid) AS m FROM ops').first['m'] as int?) ?? 0;
+
   bool isFileApplied(String path) =>
       db.select('SELECT 1 FROM applied_files WHERE path=?', [path]).isNotEmpty;
   void markFileApplied(String path) =>
