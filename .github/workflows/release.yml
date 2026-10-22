@@ -67,7 +67,12 @@ jobs:
           PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           if [ -n "$KEYSTORE" ]; then
-            echo "$KEYSTORE" | base64 -d > android/app/upload.jks
+            # Лишние пробелы и переносы строк при копировании не мешают
+            printf '%s' "$KEYSTORE" | tr -cd 'A-Za-z0-9+/=' | base64 -d > android/app/upload.jks || {
+              echo "::error::Секрет ANDROID_KEYSTORE_BASE64 не читается как base64 (длина без пробелов: $(printf '%s' "$KEYSTORE" | tr -cd 'A-Za-z0-9+/=' | wc -c), ожидается 2752). Скопируйте файл ANDROID_KEYSTORE_BASE64.txt целиком."; exit 1; }
+            PASSWORD=$(printf '%s' "$PASSWORD" | tr -d '[:space:]')
+            keytool -list -keystore android/app/upload.jks -storepass "$PASSWORD" >/dev/null 2>&1 || {
+              echo "::error::Ключ не открывается паролем из ANDROID_KEY_PASSWORD (длина пароля: ${#PASSWORD}, ожидается 24). Проверьте оба секрета."; exit 1; }
             printf 'storeFile=app/upload.jks\nstorePassword=%s\nkeyAlias=zhizn\nkeyPassword=%s\n' "$PASSWORD" "$PASSWORD" > android/key.properties
           else
             echo "::warning::Нет секрета ANDROID_KEYSTORE_BASE64 — APK подписан временным ключом, обновление поверх старой версии не встанет"
