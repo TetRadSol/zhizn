@@ -10,6 +10,7 @@ import '../widgets/capture_bar.dart';
 import '../widgets/common.dart';
 import '../widgets/lesson_tile.dart';
 import '../widgets/task_tile.dart';
+import 'lock.dart';
 import 'more.dart';
 import 'study.dart';
 import 'task_editor.dart';
@@ -23,7 +24,7 @@ class TodayScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([S.life, S.sync, S.updates]),
+      listenable: Listenable.merge([S.life, S.sync, S.updates, S.lock]),
       builder: (context, _) {
         final life = S.life;
         final now = DateTime.now();
@@ -142,6 +143,18 @@ class TodayScreen extends StatelessWidget {
         text: 'Настройте телефон, чтобы напоминания приходили вовремя (1 минута)',
         action: 'Настроить',
         onAction: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PhoneSetupScreen())),
+      ));
+    }
+    if (!S.lock.enabled && S.life.store.getKv('pin_hint_off') == null) {
+      out.add(_Banner(
+        icon: Icons.lock_outline,
+        text: 'Поставьте PIN, чтобы без вас приложение никто не открыл',
+        action: 'Поставить',
+        onAction: () => setPinFlow(context),
+        onClose: () {
+          S.life.store.setKv('pin_hint_off', '1');
+          S.life.store.touch();
+        },
       ));
     }
     final changes = S.life.pendingScheduleChanges;

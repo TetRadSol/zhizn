@@ -10,6 +10,7 @@ import '../../services/services.dart';
 import '../../services/sync.dart';
 import '../widgets/common.dart';
 import 'habits.dart';
+import 'lock.dart';
 import 'today.dart';
 
 /// «Ещё»: настройки и редко нужные разделы.
@@ -20,7 +21,7 @@ class MoreScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     void open(Widget w) => Navigator.push(context, MaterialPageRoute(builder: (_) => w));
     return ListenableBuilder(
-      listenable: Listenable.merge([S.life, S.sync, S.updates]),
+      listenable: Listenable.merge([S.life, S.sync, S.updates, S.lock]),
       builder: (context, _) => ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
@@ -46,6 +47,15 @@ class MoreScreen extends StatelessWidget {
             title: const Text('Синхронизация'),
             subtitle: Text(S.sync.configured ? 'Подключено · ${S.sync.lastOkText}' : 'Не подключена — данные только на этом устройстве'),
             onTap: () => open(const SyncScreen()),
+          ),
+          ListTile(
+            leading: const Icon(Icons.lock_outline),
+            title: const Text('Вход по PIN'),
+            subtitle: Text(S.lock.enabled ? 'Включён · нажмите, чтобы сменить' : 'Выключен — приложение открывается сразу'),
+            trailing: S.lock.enabled
+                ? TextButton(onPressed: () => S.lock.setPin(null), child: const Text('Выключить'))
+                : null,
+            onTap: () => setPinFlow(context),
           ),
           ListTile(
             leading: const Icon(Icons.notifications_outlined),
@@ -131,7 +141,7 @@ class MoreScreen extends StatelessWidget {
   }
 }
 
-/// Подключение к закрытому репозиторию GitHub.
+/// Подключение синхронизации через личного Telegram-бота.
 class SyncScreen extends StatefulWidget {
   const SyncScreen({super.key});
   @override
@@ -139,20 +149,20 @@ class SyncScreen extends StatefulWidget {
 }
 
 class _SyncScreenState extends State<SyncScreen> {
-  late final _repo = TextEditingController(text: S.sync.repo);
   final _token = TextEditingController();
   bool _checking = false;
   String? _error;
 
   Future<void> _connect() async {
+    if (_token.text.trim().isEmpty) {
+      setState(() => _error = 'Вставьте ключ бота');
+      return;
+    }
     setState(() {
       _checking = true;
       _error = null;
     });
-    final oldRepo = S.sync.repo, oldToken = S.sync.token;
-    S.sync.configure(_repo.text, _token.text.isEmpty ? oldToken : _token.text);
-    final err = await S.sync.check();
-    if (err != null) S.sync.configure(oldRepo, oldToken);
+    final err = await S.sync.connect(_token.text);
     if (!mounted) return;
     setState(() {
       _checking = false;
@@ -181,7 +191,7 @@ class _SyncScreenState extends State<SyncScreen> {
                   leading: Icon(S.sync.lastError == null ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
                       color: S.sync.lastError == null ? cs.primary : cs.error),
                   title: Text(S.sync.lastError ?? 'Всё синхронизировано'),
-                  subtitle: Text('Репозиторий ${S.sync.repo} · последний раз ${S.sync.lastOkText}'
+                  subtitle: Text('Бот @${S.sync.botName} · последний раз ${S.sync.lastOkText}'
                       '${S.sync.pending > 0 ? ' · не отправлено: ${S.sync.pending}' : ''}'),
                   trailing: S.sync.busy
                       ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
@@ -189,47 +199,42 @@ class _SyncScreenState extends State<SyncScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              Text('Синхронизация идёт сама: при открытии, через 20 секунд после изменений и каждые 10 минут.',
-                  style: TextStyle(color: cs.onSurfaceVariant)),
+              Text(
+                'Синхронизация идёт сама: при открытии, через 20 секунд после изменений и каждые 10 минут. '
+                'Чат с ботом можно отключить по звуку и не открывать — это служебный чат. '
+                'Не открепляйте в нём сообщение «zhizn-index.json».',
+                style: TextStyle(color: cs.onSurfaceVariant),
+              ),
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton(onPressed: S.sync.disconnect, child: const Text('Отключить на этом устройстве')),
               ),
               const Divider(height: 32),
-              const Text('Сменить репозиторий или ключ', style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text('Подключить другого бота', style: TextStyle(fontWeight: FontWeight.w600)),
             ] else ...[
               const Text(
-                'Телефон и ноутбук обмениваются изменениями через ваш закрытый репозиторий на GitHub. '
-                'Это бесплатно. Настройка — один раз, на каждом устройстве вводится один и тот же ключ.',
+                'Телефон и ноутбук обмениваются изменениями через вашего личного Telegram-бота. '
+                'Это бесплатно. На оба устройства вводится один и тот же ключ бота.',
               ),
               const SizedBox(height: 16),
-              _Step(1, 'Создайте закрытый репозиторий', 'Название, например, zhizn-data. Обязательно выберите Private.',
-                  'Открыть GitHub', 'https://github.com/new?name=zhizn-data&visibility=private'),
-              _Step(
-                2,
-                'Создайте ключ доступа только к нему',
-                'Repository access → Only select repositories → zhizn-data. '
-                    'Permissions → Contents → Read and write. Срок — 1 год. Нажмите Generate и скопируйте ключ.',
-                'Создать ключ',
-                'https://github.com/settings/personal-access-tokens/new',
+              const _Step(
+                1,
+                'Создайте бота (один раз)',
+                'В Telegram откройте @BotFather → /newbot → придумайте имя (например, Жизнь) и адрес, '
+                    'оканчивающийся на bot (например, zhizn_tetrad_bot). BotFather пришлёт ключ вида 123456:ABC…',
+                'Открыть @BotFather',
+                'https://t.me/BotFather',
               ),
-              const _Step(3, 'Вставьте сюда', 'Логин/название репозитория и ключ.', null, null),
+              const _Step(2, 'Напишите своему боту', 'Откройте нового бота по ссылке от BotFather и нажмите «Старт».', null, null),
+              const _Step(3, 'Вставьте ключ сюда', 'На втором устройстве — тот же ключ. Перед этим снова напишите боту что угодно.', null, null),
             ],
             const SizedBox(height: 8),
             TextField(
-              controller: _repo,
-              decoration: const InputDecoration(labelText: 'Репозиторий', hintText: 'логин/zhizn-data', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 12),
-            TextField(
               controller: _token,
               obscureText: true,
-              decoration: InputDecoration(
-                labelText: 'Ключ доступа',
-                hintText: S.sync.configured ? 'оставьте пустым, чтобы не менять' : 'github_pat_…',
-                border: const OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: 'Ключ бота', hintText: '123456789:AA…', border: OutlineInputBorder()),
+              onSubmitted: (_) => _connect(),
             ),
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: TextStyle(color: cs.error))),
             const SizedBox(height: 16),
@@ -311,6 +316,21 @@ class RemindersScreen extends StatelessWidget {
             title: const Text('Итог дня'),
             trailing: Text(s.evening, style: const TextStyle(fontSize: 16)),
             onTap: () async => s.evening = await _time(context, s.evening) ?? s.evening,
+          ),
+          ListTile(
+            leading: const Icon(Icons.event_repeat_outlined),
+            title: const Text('Недельный обзор'),
+            subtitle: Wrap(spacing: 4, children: [
+              for (var i = 1; i <= 7; i++)
+                ChoiceChip(
+                  label: Text(weekdaysShort[i - 1]),
+                  selected: s.weeklyDay == i,
+                  onSelected: (_) => s.weeklyDay = i,
+                  visualDensity: VisualDensity.compact,
+                ),
+            ]),
+            trailing: Text(s.weekly, style: const TextStyle(fontSize: 16)),
+            onTap: () async => s.weekly = await _time(context, s.weekly) ?? s.weekly,
           ),
           const Divider(),
           SwitchListTile(

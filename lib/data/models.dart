@@ -27,6 +27,8 @@ class Sphere {
     Sphere('self', '📚', 'Саморазвитие'),
     Sphere('hobby', '🎨', 'Хобби'),
     Sphere('home', '🏡', 'Дом'),
+    Sphere('money', '💰', 'Финансы'),
+    Sphere('personal', '👤', 'Личное'),
   ];
 
   static Sphere? byId(String? id) {

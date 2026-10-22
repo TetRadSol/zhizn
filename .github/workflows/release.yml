@@ -17,7 +17,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -44,8 +44,8 @@ jobs:
     needs: [test, version]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -66,11 +66,17 @@ jobs:
             echo "::warning::Нет секрета ANDROID_KEYSTORE_BASE64 — APK подписан временным ключом, обновление поверх старой версии не встанет"
           fi
       - run: flutter pub get
-      - run: >
-          flutter build apk --release
-          --build-name=${{ needs.version.outputs.name }}
-          --build-number=${{ github.run_number }}
-          --dart-define=CODE_REPO=${{ github.repository }}
+      - name: Сборка APK
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build apk --release \
+            --build-name=${{ needs.version.outputs.name }} \
+            --build-number=${{ github.run_number }} \
+            --dart-define=CODE_REPO=${{ github.repository }} 2>&1 | tee build.log || {
+            # хвост лога — в аннотацию, чтобы ошибку было видно без скачивания логов
+            grep -iE "error|exception|failed|what went wrong|could not|unresolved" build.log | tail -40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | sed 's/^/::error title=android::/'; echo
+            exit 1; }
       - run: mv build/app/outputs/flutter-apk/app-release.apk Zhizn-${{ needs.version.outputs.name }}.apk
       - uses: actions/upload-artifact@v4
         with:
@@ -81,18 +87,23 @@ jobs:
     needs: [test, version]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: >
-          flutter build windows --release
-          --build-name=${{ needs.version.outputs.name }}
-          --build-number=${{ github.run_number }}
-          --dart-define=CODE_REPO=${{ github.repository }}
+      - name: Сборка Windows
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build windows --release \
+            --build-name=${{ needs.version.outputs.name }} \
+            --build-number=${{ github.run_number }} \
+            --dart-define=CODE_REPO=${{ github.repository }} 2>&1 | tee build.log || {
+            grep -iE "error|exception|failed|could not" build.log | tail -40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | sed 's/^/::error title=windows::/'; echo
+            exit 1; }
       - name: Установщик
         shell: pwsh
         run: |
@@ -110,7 +121,7 @@ jobs:
     needs: [android, windows, version]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true

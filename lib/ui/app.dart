@@ -9,6 +9,7 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import '../services/services.dart';
 import 'screens/habits.dart';
+import 'screens/lock.dart';
 import 'screens/more.dart';
 import 'screens/study.dart';
 import 'screens/tasks.dart';
@@ -77,7 +78,9 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) S.lock.paused();
     if (state == AppLifecycleState.resumed) {
+      S.lock.resumed();
       S.sync.run();
       S.life.refreshScheduleIfStale();
       S.life.store.touch();
@@ -129,14 +132,15 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final desktop = S.desktop;
-    if (desktop != null) {
-      return ListenableBuilder(
-        listenable: desktop,
-        builder: (context, _) => desktop.quick ? const QuickCapture() : _shell(context),
-      );
-    }
-    return _shell(context);
+    // Быструю запись можно сделать и без PIN: она только добавляет, ничего не показывает.
+    return ListenableBuilder(
+      listenable: Listenable.merge([S.lock, ?S.desktop]),
+      builder: (context, _) {
+        if (S.desktop?.quick ?? false) return const QuickCapture();
+        if (S.lock.locked) return const LockScreen();
+        return _shell(context);
+      },
+    );
   }
 
   Widget _shell(BuildContext context) {

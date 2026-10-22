@@ -42,6 +42,12 @@ class ReminderSettings {
   set morning(String v) => _set('morning', v);
   String get evening => _get('evening', '21:30');
   set evening(String v) => _set('evening', v);
+
+  /// Недельный обзор: день недели (7 — воскресенье) и время.
+  int get weeklyDay => int.parse(_get('weekly_day', '7'));
+  set weeklyDay(int v) => _set('weekly_day', '$v');
+  String get weekly => _get('weekly', '20:00');
+  set weekly(String v) => _set('weekly', v);
 }
 
 int _min(String hm) {
@@ -91,6 +97,15 @@ List<Reminder> planReminders(Life life, DateTime now, {required bool phone, int 
     out.add(Reminder('morning:${ymd(day)}', _at(day, s.morning), 'План на день', body));
     out.add(Reminder('evening:${ymd(day)}', _at(day, s.evening), 'Итог дня',
         'Отметьте сделанное и привычки, перенесите остальное на завтра.'));
+    if (day.weekday == s.weeklyDay) {
+      final weekAgo = day.subtract(const Duration(days: 7));
+      final done = life.tasks.where((t) {
+        if (t.doneAt != null && t.doneAt!.isAfter(weekAgo)) return true;
+        return t.e.f.keys.any((k) => k.startsWith('c:') && t.e[k] == true && parseYmd(k.substring(2))!.isAfter(weekAgo));
+      }).length;
+      out.add(Reminder('weekly:${ymd(day)}', _at(day, s.weekly), 'Недельный обзор',
+          'За неделю сделано: $done. Победа недели, что улучшить и главный фокус на следующую неделю.'));
+    }
   }
 
   // Дела со временем

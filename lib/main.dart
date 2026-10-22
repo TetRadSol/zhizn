@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'data/store.dart';
 import 'services/desktop.dart';
 import 'services/life.dart';
+import 'services/lock.dart';
 import 'services/reminders.dart';
 import 'services/services.dart';
 import 'services/sync.dart';
@@ -29,6 +30,7 @@ Future<void> main(List<String> args) async {
     sync: Sync(life),
     notifier: Notifier(life),
     updates: Updates(),
+    lock: Lock(store),
     desktop: desktop,
   );
 
