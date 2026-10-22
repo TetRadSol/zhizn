@@ -75,7 +75,7 @@ jobs:
             --build-number=${{ github.run_number }} \
             --dart-define=CODE_REPO=${{ github.repository }} 2>&1 | tee build.log || {
             # хвост лога — в аннотацию, чтобы ошибку было видно без скачивания логов
-            grep -iE "error|exception|failed|what went wrong|could not|unresolved" build.log | tail -40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | sed 's/^/::error title=android::/'; echo
+            { grep -A25 "What went wrong" build.log || tail -60 build.log; } | head -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | sed 's/^/::error title=android::/'; echo
             exit 1; }
       - run: mv build/app/outputs/flutter-apk/app-release.apk Zhizn-${{ needs.version.outputs.name }}.apk
       - uses: actions/upload-artifact@v4
@@ -102,7 +102,7 @@ jobs:
             --build-name=${{ needs.version.outputs.name }} \
             --build-number=${{ github.run_number }} \
             --dart-define=CODE_REPO=${{ github.repository }} 2>&1 | tee build.log || {
-            grep -iE "error|exception|failed|could not" build.log | tail -40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | sed 's/^/::error title=windows::/'; echo
+            { grep -iE -B2 -A3 "error|fatal|warning MSB|exception" build.log || true; tail -40 build.log; } | tail -70 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | sed 's/^/::error title=windows::/'; echo
             exit 1; }
       - name: Установщик
         shell: pwsh
