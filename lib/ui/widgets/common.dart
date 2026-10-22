@@ -149,10 +149,15 @@ class MarkCell extends StatelessWidget {
 void toast(BuildContext context, String text, {String? action, VoidCallback? onAction}) {
   final m = ScaffoldMessenger.of(context);
   m.hideCurrentSnackBar();
+  // Уведомление само исчезает через 5 секунд (и с кнопкой «Отменить» тоже),
+  // его можно закрыть крестиком или смахнуть.
   m.showSnackBar(SnackBar(
     content: Text(text),
     behavior: SnackBarBehavior.floating,
-    duration: const Duration(seconds: 4),
+    duration: const Duration(seconds: 5),
+    persist: false,
+    showCloseIcon: true,
+    dismissDirection: DismissDirection.horizontal,
     action: action == null ? null : SnackBarAction(label: action, onPressed: onAction ?? () {}),
   ));
 }

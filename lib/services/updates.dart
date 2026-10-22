@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'services.dart';
+
 /// Репозиторий с кодом. Сборка GitHub подставляет его сама.
 const codeRepo = String.fromEnvironment('CODE_REPO', defaultValue: '');
 
@@ -70,6 +72,13 @@ class Updates extends ChangeNotifier {
       checking = false;
       notifyListeners();
     }
+  }
+
+  /// Скрыть баннер до следующей версии.
+  void dismiss() {
+    final v = available?.version;
+    if (v != null) S.life.store.setKv('update_skip', v);
+    notifyListeners();
   }
 
   /// Скачать установщик: на телефоне откроется установка APK, на ноутбуке — мастер установки.

@@ -159,12 +159,13 @@ class TodayScreen extends StatelessWidget {
   List<Widget> _banners(BuildContext context) {
     final out = <Widget>[];
     final u = S.updates.available;
-    if (u != null) {
+    if (u != null && S.life.store.getKv('update_skip') != u.version) {
       out.add(_Banner(
         icon: Icons.system_update,
         text: 'Вышла новая версия ${u.version}',
         action: 'Обновить',
         onAction: S.updates.install,
+        onClose: () => S.updates.dismiss(),
       ));
     }
     if (Platform.isAndroid && S.life.store.getKv('phone_setup') == null) {
@@ -173,6 +174,10 @@ class TodayScreen extends StatelessWidget {
         text: 'Настройте телефон, чтобы напоминания приходили вовремя (1 минута)',
         action: 'Настроить',
         onAction: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PhoneSetupScreen())),
+        onClose: () {
+          S.life.store.setKv('phone_setup', 'skip');
+          S.life.store.touch();
+        },
       ));
     }
     if (!S.lock.enabled && S.life.store.getKv('pin_hint_off') == null) {
