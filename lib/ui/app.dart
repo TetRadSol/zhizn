@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:home_widget/home_widget.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import '../services/services.dart';
@@ -59,7 +60,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     (Icons.checklist_outlined, Icons.checklist, 'Дела'),
     (Icons.school_outlined, Icons.school, 'Учёба'),
     (Icons.repeat_outlined, Icons.repeat_on, 'Привычки'),
-    (Icons.more_horiz, Icons.more_horiz, 'Ещё'),
+    (Icons.apps_outlined, Icons.apps, 'Разделы'),
   ];
 
   @override
@@ -69,6 +70,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     S.notifier.onTap = _onNotification;
     if (Platform.isAndroid) {
       _shareSub = ReceiveSharingIntent.instance.getMediaStream().listen(_onShared);
+      HomeWidget.widgetClicked.listen(_onWidget);
+      HomeWidget.initiallyLaunchedFromHomeWidget().then(_onWidget);
       ReceiveSharingIntent.instance.getInitialMedia().then((m) {
         _onShared(m);
         ReceiveSharingIntent.instance.reset();
@@ -100,6 +103,15 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
       bar.addFiles(files);
       bar.focus();
     });
+  }
+
+  /// Нажатие на виджет: «Записать» — сразу в поле записи.
+  void _onWidget(Uri? uri) {
+    if (uri == null) return;
+    setState(() => _tab = 0);
+    if (uri.host == 'capture') {
+      WidgetsBinding.instance.addPostFrameCallback((_) => captureKey.currentState?.focus());
+    }
   }
 
   void _onNotification(NotificationResponse r) {

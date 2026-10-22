@@ -2,7 +2,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zhizn/data/models.dart';
+import 'package:zhizn/logic/finance.dart';
+import 'package:zhizn/logic/motivation.dart';
 import 'package:zhizn/logic/parser.dart';
+import 'package:zhizn/logic/training.dart';
 import 'package:zhizn/logic/recurrence.dart';
 import 'package:zhizn/logic/schedule.dart';
 
@@ -215,6 +218,32 @@ void main() {
       final p = one('привычка: протеин');
       expect(p.kind, 'habit');
       expect(p.sphere, 'health');
+    });
+  });
+
+  group('Финансы, тренировки, уровни', () {
+    test('траты, доходы, накопления', () {
+      expect(parseMoney('обед 7,5')!.cat, 'food');
+      expect(parseMoney('обед 7,5')!.amount, 7.5);
+      expect(parseMoney('такси 5\$')!.currency, r'$');
+      expect(parseMoney('+50 стипендия')!.type, 'income');
+      expect(parseMoney('отложил 20')!.type, 'saving');
+      expect(one('+50 стипендия').type, 'money');
+      expect(one('отложил 20').type, 'money');
+    });
+    test('подходы', () {
+      final a = parseWorkout('жим 60 на 10')!;
+      expect((a.exercise, a.weight, a.reps, a.sets), ('Жим', 60.0, 10, 1));
+      final b = parseWorkout('присед 80х5х3')!;
+      expect((b.weight, b.reps, b.sets), (80.0, 5, 3));
+      expect(parseWorkout('подтягивания 10')!.reps, 10);
+      expect(parseWorkout('планка 60 сек')!.seconds, 60);
+    });
+    test('уровни', () {
+      expect(Motivation.levelOf(0), 1);
+      expect(Motivation.levelOf(100), 2);
+      expect(Motivation.levelOf(299), 2);
+      expect(Motivation.levelOf(300), 3);
     });
   });
 }

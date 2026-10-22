@@ -6,13 +6,16 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'data/store.dart';
+import 'logic/excel_import.dart';
 import 'services/desktop.dart';
+import 'services/home_widget.dart';
 import 'services/jarvis.dart';
 import 'services/life.dart';
 import 'services/lock.dart';
 import 'services/reminders.dart';
 import 'services/services.dart';
 import 'services/sync.dart';
+import 'services/tg_inbox.dart';
 import 'services/updates.dart';
 import 'ui/app.dart';
 
@@ -23,6 +26,7 @@ Future<void> main(List<String> args) async {
   final dir = await getApplicationSupportDirectory();
   await dir.create(recursive: true);
   final store = Store.open(p.join(dir.path, 'zhizn.db'));
+  ensureDefaults(store);
   final life = Life(store, filesDir: dir.path);
   final desktop = Desktop.supported ? Desktop() : null;
 
@@ -33,6 +37,7 @@ Future<void> main(List<String> args) async {
     updates: Updates(),
     lock: Lock(store),
     jarvis: Jarvis(life),
+    tg: TgInbox(life),
     desktop: desktop,
   );
 
@@ -47,11 +52,13 @@ Future<void> main(List<String> args) async {
     await S.updates.check();
   });
   S.sync.start();
+  WidgetUpdater(life).start();
   if (desktop != null) {
     S.jarvis.onReport = (r) {
       if (r.questions > 0) S.notifier.showNow('Джарвис спрашивает', 'Вопросов: ${r.questions}. Ответьте на экране «Сегодня».');
     };
     S.jarvis.start();
+    S.tg.start();
   }
   safe(S.life.refreshScheduleIfStale);
   _backup(dir.path, store);

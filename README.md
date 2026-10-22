@@ -6,9 +6,9 @@
 
 ## Как поставить
 
-- **Телефон:** раздел [Releases](../../releases) → скачать `Zhizn-x.y.z.apk` → открыть файл → «Установить».
+- **Телефон:** [скачать Zhizn.apk](https://github.com/TetRadSol/zhizn/releases/latest/download/Zhizn.apk) → открыть файл → «Установить».
   При первом запуске приложение проведёт по настройкам телефона Tecno (уведомления, батарея, автозапуск).
-- **Ноутбук:** там же скачать `Zhizn-Setup-x.y.z.exe` и запустить. Права администратора не нужны.
+- **Ноутбук:** [скачать Zhizn-Setup.exe](https://github.com/TetRadSol/zhizn/releases/latest/download/Zhizn-Setup.exe) и запустить. Права администратора не нужны.
   Приложение стартует вместе с Windows в трее; `Ctrl + Alt + N` — быстрая запись из любой программы.
 
 Новые версии приложение находит само и предлагает обновиться.
@@ -27,6 +27,12 @@
 | План дня «что реально успеть» | `lib/logic/planner.dart` |
 | Джарвис: запуск Claude Code, входные данные, проверка ответа | `lib/services/jarvis.dart`, `assets/jarvis_prompt.md` |
 | Коннектор для Claude Desktop (MCP) | `lib/services/mcp.dart` |
+| Опыт, уровни, идеальные дни, награды, единая шкала, прогресс целей | `lib/logic/motivation.dart` |
+| Финансы: категории, итоги месяца, накопления | `lib/logic/finance.dart` |
+| Тренировки: разбор подходов | `lib/logic/training.dart` |
+| Разделы: цели, прогресс, здоровье, тренировки и питание, финансы, люди, покупки, саморазвитие, автошкола, отдых с пользой, обзор недели, матрица, план недели | `lib/ui/screens/modules/` |
+| Пересылка из Telegram (бот, на ноутбуке) | `lib/services/tg_inbox.dart` |
+| Виджет Android | `lib/services/home_widget.dart`, `android/app/src/main/kotlin/…/ZhiznWidget.kt` |
 | Вход по PIN | `lib/services/lock.dart` |
 | Напоминания, тишина 8:00–16:00, сводка | `lib/services/reminders.dart` |
 | Трей, горячая клавиша, мини-окно (Windows) | `lib/services/desktop.dart` |

@@ -387,17 +387,27 @@ class Parser {
         ..amount = double.parse(m[1]!)
         ..why.add('настроение');
     }
-    if (RegExp(r'^(жим|присед|тяга|подтяг|отжим|выпады|бицепс|трицепс|становая)[а-я]*\s.*\d+\s*(на|x|х|×)\s*\d+').hasMatch(l)) {
+    if (RegExp(r'^(жим|присед|тяга|подтяг|отжим|выпады|бицепс|трицепс|становая|планка|пресс|разводк|сгибани|разгибани|махи|французск|гиперэкстенз|скручивани)[а-я]*\s.*\d').hasMatch(l) &&
+        !RegExp(r'(завтра|сегодня|в пятницу|по понедельник|каждый)').hasMatch(l)) {
       return Parsed('journal', line)
         ..type = 'workout'
         ..sphere = 'health'
         ..why.add('тренировка');
     }
+    // «+50 стипендия», «+120»: доход
+    m = RegExp(r'^\+\s*(\d+(?:[.,]\d{1,2})?)\s*(br|byn|руб\.?|р\.?|\$|usd|долл\.?)?(?:\s+[а-яё ]{0,30})?$').firstMatch(l);
+    if (m != null) {
+      return Parsed('journal', line)
+        ..type = 'money'
+        ..sphere = 'money'
+        ..amount = double.parse(m[1]!.replaceAll(',', '.'))
+        ..why.add('доход');
+    }
     m = RegExp(r'^([а-яё ]{2,30}?)\s+(\d+(?:[.,]\d{1,2})?)\s*(br|byn|руб\.?|р\.?|\$|usd|долл\.?)?$').firstMatch(l);
     if (m != null) {
       final words = m[1]!.trim().split(' ');
       final isSpend = _spend.contains(words.first) ||
-          RegExp(r'^(потратил|расход|доход|получил|зарплата|стипендия)').hasMatch(m[1]!);
+          RegExp(r'^(потратил|расход|доход|получил|зарплата|стипендия|подработка|отложил|в копилку)').hasMatch(m[1]!);
       if (isSpend || m[3] != null) {
         return Parsed('journal', line)
           ..type = 'money'

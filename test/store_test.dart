@@ -99,7 +99,7 @@ void main() {
       final r = life.capture('Постирать постельное\nУбраться в комнате\nобед 7,5');
       expect(r.created.length, 3);
       expect(life.tasks.length, 2);
-      expect(life.journal.length, 1);
+      expect(life.store.ofKind(Kinds.money).single['amount'], 7.5);
       life.undoCapture(r);
       expect(life.tasks, isEmpty);
       expect(life.captures, isEmpty);

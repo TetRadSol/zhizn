@@ -12,6 +12,14 @@ import '../widgets/common.dart';
 import '../../services/jarvis.dart';
 import 'habits.dart';
 import 'jarvis.dart';
+import 'modules/finance.dart';
+import 'modules/goals.dart';
+import 'modules/growth.dart';
+import 'modules/health.dart';
+import 'modules/people.dart';
+import 'modules/planning.dart';
+import 'modules/progress.dart';
+import 'modules/training.dart';
 import 'lock.dart';
 import 'today.dart';
 
@@ -29,8 +37,54 @@ class MoreScreen extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text('Ещё', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+            child: Text('Разделы', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: LayoutBuilder(builder: (context, c) {
+              final cols = (c.maxWidth / 110).floor().clamp(3, 7);
+              const items = [
+                ('🎯', 'Цели', GoalsScreen()),
+                ('⭐', 'Прогресс', ProgressScreen()),
+                ('💪', 'Здоровье', HealthScreen()),
+                ('🏋️', 'Тренировки', TrainingScreen()),
+                ('💰', 'Финансы', FinanceScreen()),
+                ('👥', 'Люди', PeopleScreen()),
+                ('🛒', 'Покупки', ShoppingScreen()),
+                ('📚', 'Саморазвитие', PracticeScreen()),
+                ('🚗', 'Автошкола', AutoSchoolScreen()),
+                ('☕', 'Отдых с пользой', LeisureScreen()),
+                ('📅', 'Обзор недели', WeekReviewScreen()),
+                ('🧭', 'Важно / срочно', MatrixScreen()),
+                ('🗓', 'План недели', WeekPlanScreen()),
+              ];
+              return GridView.count(
+                crossAxisCount: cols,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                childAspectRatio: 1.05,
+                mainAxisSpacing: 6,
+                crossAxisSpacing: 6,
+                children: [
+                  for (final (e, t, w) in items)
+                    Material(
+                      color: Theme.of(context).colorScheme.surfaceContainerLow,
+                      borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () => open(w),
+                        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                          Text(e, style: const TextStyle(fontSize: 28)),
+                          const SizedBox(height: 4),
+                          Text(t, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                        ]),
+                      ),
+                    ),
+                ],
+              );
+            }),
+          ),
+          const SectionTitle('Настройки и помощник'),
           ListTile(
             leading: const Icon(Icons.smart_toy_outlined),
             title: const Text('Джарвис'),

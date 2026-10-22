@@ -89,11 +89,11 @@ jobs:
             # хвост лога — в аннотацию, чтобы ошибку было видно без скачивания логов
             { grep -A25 "What went wrong" build.log || tail -60 build.log; } | head -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | sed 's/^/::error title=android::/'; echo
             exit 1; }
-      - run: mv build/app/outputs/flutter-apk/app-release.apk Zhizn-${{ needs.version.outputs.name }}.apk
+      - run: mv build/app/outputs/flutter-apk/app-release.apk Zhizn.apk
       - uses: actions/upload-artifact@v4
         with:
           name: android
-          path: Zhizn-*.apk
+          path: Zhizn.apk
 
   windows:
     needs: [test, version]
@@ -126,7 +126,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: build/installer/Zhizn-Setup-*.exe
+          path: build/installer/Zhizn-Setup.exe
 
   release:
     if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''

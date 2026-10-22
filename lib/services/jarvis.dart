@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import '../data/models.dart';
 import '../data/store.dart';
+import '../logic/finance.dart';
 import 'life.dart';
 
 /// Что Джарвис сделал за один запуск — для ленты и уведомления.
@@ -53,7 +54,16 @@ class JarvisBrain {
 
   bool wantEvening(DateTime now) => now.hour >= 20 && life.digest(dayOf(now), 'evening') == null;
 
-  bool hasWork(DateTime now) => pendingRecords().isNotEmpty || pendingAnswers().isNotEmpty || wantEvening(now);
+  /// Нужны новые рекомендации: попросили кнопкой или их почти не осталось.
+  bool wantRecs(DateTime now) {
+    final req = DateTime.tryParse((store.get('rec_request')?['at'] as String?) ?? '');
+    final last = DateTime.tryParse(store.getKv('recs_at') ?? '');
+    if (req != null && (last == null || req.isAfter(last))) return true;
+    final fresh = store.ofKind(Kinds.rec).where((r) => r['status'] == null || r['status'] == 'new').length;
+    return wantEvening(now) && fresh < 4 && (last == null || now.difference(last).inDays >= 3);
+  }
+
+  bool hasWork(DateTime now) => pendingRecords().isNotEmpty || pendingAnswers().isNotEmpty || wantEvening(now) || wantRecs(now);
 
   Map<String, dynamic> _task(Task t) => {
     'id': t.id,
@@ -116,6 +126,31 @@ class JarvisBrain {
       ],
       'want_evening': evening,
       'want_morning': evening,
+      'english': life.profile('english') != 'нет',
+      'practices': [
+        for (final p in store.ofKind(Kinds.practice))
+          {
+            'id': p.id,
+            'title': p['title'],
+            'about': p['about'],
+            'minutes': p['minutes'],
+            'done_last_7_days': [for (var i = 1; i <= 7; i++) p['m:${ymd(today.subtract(Duration(days: i)))}']].where((m) => m == '✓').length,
+          },
+      ],
+      'want_assignments': evening,
+      'want_recs': wantRecs(now),
+      'recs_feedback': {
+        'liked': [for (final r in store.ofKind(Kinds.rec)) if (r['like'] == true) r['title']],
+        'disliked': [for (final r in store.ofKind(Kinds.rec)) if (r['like'] == false) r['title']],
+        'already': [for (final r in store.ofKind(Kinds.rec)) r['title']].take(60).toList(),
+      },
+      'money_month': () {
+        final m = monthMoney(store, today.year, today.month);
+        return {'income': m.income, 'expense': m.expense, 'saved_total': totalSaved(store), 'budget': store.get('budget')?['default']};
+      }(),
+      'people': [
+        for (final p in store.ofKind(Kinds.person)) {'name': p['name'], 'birthday': p['birthday'], 'every_days': p['every'], 'last_contact': p['last']},
+      ],
       if (evening) ...{
         'day_stats': {
           'done': life.doneToday().map((t) => t.title).toList(),
@@ -249,6 +284,33 @@ class JarvisBrain {
       final day = now.hour >= 12 ? today.add(const Duration(days: 1)) : today;
       store.update('digest:${ymd(day)}:morning', Kinds.digest, {'text': (out['morning'] as String).trim()});
       r.morning = true;
+    }
+    // Задания для практик: вечером — на завтра
+    final asg = out['assignments'];
+    if (asg is Map) {
+      final day = now.hour >= 12 ? today.add(const Duration(days: 1)) : today;
+      for (final e in asg.entries) {
+        if (store.get('${e.key}')?.kind != Kinds.practice) continue;
+        final v = e.value;
+        final text = v is Map ? v['text'] : v;
+        if (text is! String || text.trim().isEmpty) continue;
+        store.update('assign:${e.key}:${ymd(day)}', 'assign', {'text': text.trim(), if (v is Map && v['link'] is String) 'link': v['link']});
+      }
+    }
+    final recs = out['recommendations'];
+    if (recs is List) {
+      for (final r in recs.whereType<Map>()) {
+        if (r['title'] is! String) continue;
+        const cats = {'break', 'watch', 'read', 'self', 'dating'};
+        store.create(Kinds.rec, {
+          'cat': cats.contains(r['cat']) ? r['cat'] : 'self',
+          'title': r['title'],
+          if (r['why'] is String) 'why': r['why'],
+          if (r['link'] is String && (r['link'] as String).startsWith('http')) 'link': r['link'],
+          'status': 'new',
+        });
+      }
+      store.setKv('recs_at', now.toIso8601String());
     }
     final fl = out['focus_lock'];
     if (fl is Map && fl['task'] is String && store.get(fl['task'] as String)?.kind == Kinds.task) {

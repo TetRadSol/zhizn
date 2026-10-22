@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zhizn/data/models.dart';
 import 'package:zhizn/data/store.dart';
+import 'package:zhizn/logic/excel_import.dart';
 import 'package:zhizn/logic/schedule.dart';
 import 'package:zhizn/services/life.dart';
 import 'dart:convert';
@@ -31,6 +32,10 @@ void main() {
     }
     store.create(Kinds.question, {'text': 'Как часто стирать постельное?', 'options': ['Раз в неделю', 'Раз в 2 недели']});
     store.update('digest:${ymd(t)}:morning', Kinds.digest, {'text': 'Начни с реферата по АХДП до ВУЗа — 30 минут хватит на план. Вечером — практикумы, они короткие.'});
+    importExcelTracker(store);
+    ensureDefaults(store);
+    life.capture('обед 7,5\nтакси 6\n+120 стипендия\nотложил 50\nжим 60 на 10\nвес 72,5');
+    store.create(Kinds.person, {'name': 'Мама', 'birthday': '${t.month.toString().padLeft(2, '0')}-${(t.day + 1).toString().padLeft(2, '0')}', 'every': 3});
     final done = store.create(Kinds.task, {'title': 'Купить продукты', 'due': ymd(t), 'sphere': 'home'});
     life.complete(life.task(done)!);
   });

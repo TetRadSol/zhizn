@@ -64,6 +64,14 @@ String _plural(int n, String one, String few, String many) {
   return many;
 }
 
+DateTime? _birthday(String? b, DateTime day) {
+  if (b == null) return null;
+  final p = b.split('-').map(int.tryParse).toList();
+  if (p.length < 2 || p.any((x) => x == null)) return null;
+  final (m, d) = p.length == 3 ? (p[1]!, p[2]!) : (p[0]!, p[1]!);
+  return DateTime(day.year, m, d);
+}
+
 /// Составляет напоминания на ближайшие дни. Чистая функция — проверяется тестами.
 List<Reminder> planReminders(Life life, DateTime now, {required bool phone, int days = 3}) {
   final s = ReminderSettings(life);
@@ -90,8 +98,19 @@ List<Reminder> planReminders(Life life, DateTime now, {required bool phone, int 
       }
     }
     final jarvisMorning = life.digest(day, 'morning')?['text'] as String?;
+    final extra = <String>[];
+    for (final p in life.store.ofKind(Kinds.person)) {
+      final bd = _birthday(p['birthday'] as String?, day);
+      if (bd == day) extra.add('🎂 Сегодня день рождения: ${p['name']}');
+      if (bd == day.add(const Duration(days: 1))) extra.add('🎂 Завтра день рождения: ${p['name']} — подарок?');
+      final every = (p['every'] as num?)?.toInt();
+      final last = parseYmd(p['last'] as String?);
+      if (every != null && every > 0 && (last == null || !last.add(Duration(days: every)).isAfter(day))) extra.add('📞 Пора связаться: ${p['name']}');
+    }
+    if (day.weekday == 3) extra.add('⚖️ Сегодня взвешивание — утром натощак');
     final body = [
       ?jarvisMorning,
+      ...extra.take(4),
       if (parts.isEmpty) 'Свободный день' else parts.join(', '),
       if (first.isNotEmpty) 'Сначала: $first',
       ...ladder.take(3).map((x) => 'Срок $x'),
@@ -107,6 +126,20 @@ List<Reminder> planReminders(Life life, DateTime now, {required bool phone, int 
       }).length;
       out.add(Reminder('weekly:${ymd(day)}', _at(day, s.weekly), 'Недельный обзор',
           'За неделю сделано: $done. Победа недели, что улучшить и главный фокус на следующую неделю.'));
+    }
+  }
+
+  // Добавки: одно уведомление на каждое время приёма
+  for (var i = 0; i < days; i++) {
+    final day = today.add(Duration(days: i));
+    final byTime = <String, List<String>>{};
+    for (final h in life.habits.where((h) => h.e['supp'] == true && h.activeOn(day) && h.mark(day) == null)) {
+      for (final t in ((h.e['times'] as List?) ?? const []).cast<String>()) {
+        byTime.putIfAbsent(t, () => []).add(h.title);
+      }
+    }
+    for (final e in byTime.entries) {
+      out.add(Reminder('supp:${ymd(day)}:${e.key}', _at(day, e.key), '💊 Добавки', e.value.join(', ')));
     }
   }
 
@@ -138,7 +171,7 @@ List<Reminder> planReminders(Life life, DateTime now, {required bool phone, int 
     });
     for (final e in missed.entries) {
       final day = parseYmd(e.key)!;
-      final items = e.value.where((r) => r.key.startsWith('task:')).map((r) => r.body).toList();
+      final items = e.value.where((r) => r.key.startsWith('task:') || r.key.startsWith('supp:')).map((r) => r.key.startsWith('supp:') ? '💊 ${r.body}' : r.body).toList();
       if (items.isEmpty) continue;
       out.add(Reminder('quiet:${e.key}', _at(day, s.quietTo), 'Пока телефон был сдан', items.join('\n')));
     }

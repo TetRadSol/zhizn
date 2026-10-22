@@ -552,6 +552,8 @@ class _JarvisScreenState extends State<JarvisScreen> {
                 trailing: TextButton(onPressed: _setPath, child: const Text('Путь')),
               ),
               if (S.jarvis.lastError != null) Text(S.jarvis.lastError!, style: TextStyle(color: cs.error)),
+              const Divider(height: 32),
+              const _TgInboxSection(),
               if (Platform.isWindows) ...[
                 const Divider(height: 32),
                 Text('Разговор с Джарвисом в Claude Desktop', style: Theme.of(context).textTheme.titleMedium),
@@ -587,6 +589,13 @@ class _JarvisScreenState extends State<JarvisScreen> {
               ('tone', 'Как со мной говорить'),
             ])
               _ProfileField(fieldKey: key, label: label),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Немного английского'),
+              subtitle: const Text('В мотивации и итогах — короткие фразы по-английски с переводом. Сроки и вопросы — всегда по-русски.'),
+              value: S.life.profile('english') != 'нет',
+              onChanged: (v) => S.life.setProfile('english', v ? 'да' : 'нет'),
+            ),
             Row(children: [
               for (final (key, label) in const [('wake', 'Подъём'), ('sleep', 'Отбой'), ('road', 'Дорога, мин')])
                 Expanded(child: Padding(padding: const EdgeInsets.only(right: 8), child: _ProfileField(fieldKey: key, label: label, short: true))),
@@ -660,3 +669,47 @@ class _ProfileFieldState extends State<_ProfileField> {
   );
 }
 
+
+/// Пересылка сообщений из Telegram в «Жизнь» (работает на ноутбуке).
+class _TgInboxSection extends StatefulWidget {
+  const _TgInboxSection();
+  @override
+  State<_TgInboxSection> createState() => _TgInboxSectionState();
+}
+
+class _TgInboxSectionState extends State<_TgInboxSection> {
+  final _c = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return ListenableBuilder(
+      listenable: S.tg,
+      builder: (context, _) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Пересылка из Telegram', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 6),
+        if (S.tg.enabled) ...[
+          Text('Бот @${S.tg.bot}. Пересылайте ему сообщения, фото и файлы — через минуту они появятся в записях. '
+              '${S.tg.owner == null ? 'Сначала напишите боту /start.' : ''}'),
+          if (S.tg.lastError != null) Text(S.tg.lastError!, style: TextStyle(color: cs.error)),
+          TextButton(onPressed: S.tg.disconnect, child: const Text('Отключить')),
+        ] else ...[
+          const Text('Создайте бота в @BotFather (/newbot), вставьте сюда его ключ и напишите боту /start. '
+              'Дальше всё, что перешлёте боту, станет записью. Работает, пока ноутбук включён.'),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: TextField(controller: _c, obscureText: true, decoration: const InputDecoration(labelText: 'Ключ бота', isDense: true, border: OutlineInputBorder()))),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: () async {
+                final err = await S.tg.connect(_c.text);
+                if (context.mounted) toast(context, err ?? 'Бот подключён. Напишите ему /start');
+              },
+              child: const Text('Подключить'),
+            ),
+          ]),
+        ],
+      ]),
+    );
+  }
+}

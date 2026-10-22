@@ -14,6 +14,46 @@ abstract final class Kinds {
   static const busy = 'busy'; // форс-мажор: наряд, сборы
   static const profile = 'profile'; // профиль Джарвиса (одна запись с id 'profile')
   static const digest = 'digest'; // итог дня и план от Джарвиса
+  static const reward = 'reward'; // награда за прогресс
+  static const metrics = 'metrics'; // показатели дня: сон, вода, шаги… (id metrics:ГГГГ-ММ-ДД)
+  static const body = 'body'; // вес и замеры
+  static const week = 'week'; // недельный обзор (id week:ГГГГ-ММ-ДД понедельника)
+  static const money = 'money'; // трата, доход, накопление
+  static const debt = 'debt'; // долг
+  static const person = 'person'; // человек: день рождения, «позвонить», заметки
+  static const practice = 'practice'; // практика саморазвития с заданиями Джарвиса
+  static const ticket = 'tickets'; // билеты ПДД (одна запись с id tickets)
+  static const autoEvent = 'auto'; // экзамены и оплаты автошколы
+  static const program = 'program'; // программа тренировок
+  static const workout = 'workout'; // подход в журнале тренировок
+  static const meal = 'meal'; // еда
+  static const rec = 'rec'; // рекомендация Джарвиса: фильм, книга, совет, перерыв
+}
+
+/// Показатели дня из Excel-трекера.
+class Metric {
+  const Metric(this.id, this.emoji, this.name, this.target, {this.max = false, this.step = 1});
+  final String id;
+  final String emoji;
+  final String name;
+  final num target;
+
+  /// true — «не больше цели» (экран), иначе — «не меньше».
+  final bool max;
+  final num step;
+
+  bool ok(num v) => max ? v <= target : v >= target;
+
+  static const all = [
+    Metric('sleep', '😴', 'Сон, часов', 8, step: 0.5),
+    Metric('water', '💧', 'Вода, стаканов', 8),
+    Metric('steps', '👟', 'Шаги', 10000, step: 1000),
+    Metric('train', '🏋️', 'Тренировка, мин', 30, step: 10),
+    Metric('study', '📚', 'Учёба, часов', 2, step: 0.5),
+    Metric('screen', '📱', 'Экран, часов', 3, max: true, step: 0.5),
+    Metric('energy', '⚡', 'Энергия (1–5)', 4),
+    Metric('mood', '😊', 'Настроение (1–5)', 4),
+  ];
 }
 
 class Sphere {

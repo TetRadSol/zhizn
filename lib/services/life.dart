@@ -8,10 +8,12 @@ import 'package:path/path.dart' as p;
 
 import '../data/models.dart';
 import '../data/store.dart';
+import '../logic/finance.dart';
 import '../logic/parser.dart';
 import '../logic/planner.dart';
 import '../logic/recurrence.dart';
 import '../logic/schedule.dart';
+import '../logic/training.dart';
 
 /// Итог одной записи: что создано, чтобы показать и при необходимости отменить.
 class CaptureResult {
@@ -85,6 +87,32 @@ class Life extends ChangeNotifier {
             'type': it.type,
             'sphere': ?it.sphere,
             'capture': captureId,
+          }));
+        case 'journal' when it.type == 'money' && parseMoney(it.title) != null:
+          final m = parseMoney(it.title)!;
+          created.add(store.create(Kinds.money, {
+            'date': ymd(today),
+            'type': m.type,
+            'cat': m.cat,
+            'amount': m.amount,
+            'currency': m.currency,
+            'note': m.note.isEmpty ? it.title : m.note,
+            'capture': captureId,
+          }));
+        case 'journal' when it.type == 'weight':
+          created.add(store.create(Kinds.body, {'date': ymd(today), 'weight': it.amount}));
+        case 'journal' when it.type == 'mood':
+          // Показатели дня общие на весь день, поэтому в «отменяемое» не попадают
+          store.update('metrics:${ymd(today)}', Kinds.metrics, {'mood': it.amount!.clamp(1, 5)});
+        case 'journal' when it.type == 'workout' && parseWorkout(it.title) != null:
+          final w = parseWorkout(it.title)!;
+          created.add(store.create(Kinds.workout, {
+            'date': ymd(today),
+            'exercise': w.exercise,
+            'weight': ?w.weight,
+            'reps': ?w.reps,
+            'sets': w.sets,
+            'seconds': ?w.seconds,
           }));
         case 'journal':
           created.add(store.create(Kinds.journal, {
@@ -161,6 +189,7 @@ class Life extends ChangeNotifier {
     'wake': '06:30',
     'sleep': '23:00',
     'road': '30',
+    'english': 'да',
   };
 
   String profile(String key) {

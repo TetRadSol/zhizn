@@ -11,6 +11,11 @@ import '../widgets/common.dart';
 import '../widgets/lesson_tile.dart';
 import '../widgets/task_tile.dart';
 import 'jarvis.dart';
+import 'modules/growth.dart';
+import 'modules/health.dart';
+import 'modules/people.dart';
+import 'modules/planning.dart';
+import 'modules/progress.dart';
 import 'lock.dart';
 import 'more.dart';
 import 'study.dart';
@@ -53,6 +58,7 @@ class TodayScreen extends StatelessWidget {
                     Text(dateLong(today), style: TextStyle(color: cs.onSurfaceVariant)),
                   ]),
                 ),
+                const LevelChip(),
                 IconButton(
                   tooltip: 'Форс-мажор: наряд, сборы',
                   icon: const Icon(Icons.flash_on_outlined),
@@ -132,6 +138,11 @@ class TodayScreen extends StatelessWidget {
                     _HabitChip(title: h.title, mark: h.mark(today), onTap: () => life.cycleHabit(h, today)),
                 ]),
               ),
+            ],
+            const _AlsoToday(),
+            if (now.hour >= 18) ...[
+              const SectionTitle('Показатели дня'),
+              const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: MetricsCard()),
             ],
             const _Feed(),
           ],
@@ -421,5 +432,40 @@ class _PhoneSetupScreenState extends State<PhoneSetupScreen> {
         ],
       ),
     );
+  }
+}
+
+/// «Ещё на сегодня»: практики, добавки, дни рождения, кому позвонить, покупки, обзор недели.
+class _AlsoToday extends StatelessWidget {
+  const _AlsoToday();
+
+  @override
+  Widget build(BuildContext context) {
+    final life = S.life;
+    final today = life.today;
+    void open(Widget w) => Navigator.push(context, MaterialPageRoute(builder: (_) => w));
+    final chips = <Widget>[];
+    final practices = life.store.ofKind(Kinds.practice).where((p) => p['m:${ymd(today)}'] != '✓').length;
+    if (practices > 0) chips.add(ActionChip(avatar: const Text('📚'), label: Text('Практики: $practices'), onPressed: () => open(const PracticeScreen())));
+    final supps = life.habits.where((h) => h.e['supp'] == true && h.mark(today) == null).length;
+    if (supps > 0) chips.add(ActionChip(avatar: const Text('💊'), label: Text('Добавки: $supps'), onPressed: () => open(const HealthScreen())));
+    for (final p in life.store.ofKind(Kinds.person)) {
+      final b = nextBirthday(p, today);
+      if (b != null && b.difference(today).inDays <= 1) {
+        chips.add(ActionChip(avatar: const Text('🎂'), label: Text('${p['name']} — ${b == today ? 'сегодня' : 'завтра'}'), onPressed: () => open(const PeopleScreen())));
+      }
+    }
+    final calls = life.store.ofKind(Kinds.person).where((p) => contactDue(p, today)).length;
+    if (calls > 0) chips.add(ActionChip(avatar: const Text('📞'), label: Text('Связаться: $calls'), onPressed: () => open(const PeopleScreen())));
+    final shop = life.tasks.where((t) => t.type == 'shopping' && !t.done).length;
+    if (shop > 0) chips.add(ActionChip(avatar: const Text('🛒'), label: Text('Купить: $shop'), onPressed: () => open(const ShoppingScreen())));
+    if (today.weekday == 7 && life.store.get('week:${ymd(mondayOf(today))}')?['score'] == null) {
+      chips.add(ActionChip(avatar: const Text('📅'), label: const Text('Обзор недели'), onPressed: () => open(const WeekReviewScreen())));
+    }
+    if (chips.isEmpty) return const SizedBox();
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const SectionTitle('Ещё на сегодня'),
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Wrap(spacing: 6, runSpacing: 6, children: chips)),
+    ]);
   }
 }

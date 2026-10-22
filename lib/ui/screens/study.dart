@@ -120,14 +120,19 @@ class _StudyScreenState extends State<StudyScreen> {
               ),
             for (final l in lessons) LessonTile(l),
             if (exams.isNotEmpty) ...[
-              const SectionTitle('Зачёты и экзамены'),
+              const SectionTitle('Зачёты и экзамены · нажмите, когда сдадите'),
               for (final e in exams.take(15))
                 ListTile(
                   leading: CircleAvatar(
                     backgroundColor: e.date.difference(today).inDays <= 7 ? cs.errorContainer : cs.surfaceContainerHighest,
                     child: Text('${e.date.difference(today).inDays}', style: const TextStyle(fontWeight: FontWeight.w700)),
                   ),
-                  title: Text('${e.subject} — ${e.type}'),
+                  title: Text('${S.life.store.get('lesson:${e.ref}')?['passed'] == true ? '✅ ' : ''}${e.subject} — ${e.type}'),
+                  onTap: () {
+                    final passed = S.life.store.get('lesson:${e.ref}')?['passed'] == true;
+                    S.life.store.update('lesson:${e.ref}', Kinds.lesson, {'passed': !passed});
+                    toast(context, passed ? 'Отметка «сдано» снята' : 'Сдано! 🎉 Засчитано в цель «сессия без долгов»');
+                  },
                   subtitle: Text('${dayLabel(e.date)}, ${e.start}${e.place != null ? ' · ${e.place}' : ''}'),
                   trailing: Text(_daysLeft(e.date.difference(today).inDays), style: TextStyle(color: cs.onSurfaceVariant)),
                 ),

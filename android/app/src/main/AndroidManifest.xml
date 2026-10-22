@@ -28,6 +28,9 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.LAUNCH" />
+            </intent-filter>
             <!-- «Поделиться» → «Жизнь»: текст, ссылки, фото, файлы -->
             <intent-filter android:label="Записать в Жизнь">
                 <action android:name="android.intent.action.SEND" />
@@ -66,6 +69,13 @@
             </intent-filter>
         </receiver>
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />
+        <!-- Виджет на рабочий стол -->
+        <receiver android:name=".ZhiznWidget" android:exported="true" android:label="Жизнь">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/zhizn_widget_info" />
+        </receiver>
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
