@@ -1,0 +1,126 @@
+# Сборка «Жизни»: на каждый тег v* — APK для телефона и установщик для Windows
+# в разделе Releases. Приложение само находит новый релиз и предлагает обновиться.
+name: Сборка и релиз
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.47.7'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.v.outputs.name }}
+    steps:
+      - id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "name=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=0.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+  android:
+    needs: [test, version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Ключ подписи
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE" ]; then
+            echo "$KEYSTORE" | base64 -d > android/app/upload.jks
+            printf 'storeFile=app/upload.jks\nstorePassword=%s\nkeyAlias=zhizn\nkeyPassword=%s\n' "$PASSWORD" "$PASSWORD" > android/key.properties
+          else
+            echo "::warning::Нет секрета ANDROID_KEYSTORE_BASE64 — APK подписан временным ключом, обновление поверх старой версии не встанет"
+          fi
+      - run: flutter pub get
+      - run: >
+          flutter build apk --release
+          --build-name=${{ needs.version.outputs.name }}
+          --build-number=${{ github.run_number }}
+          --dart-define=CODE_REPO=${{ github.repository }}
+      - run: mv build/app/outputs/flutter-apk/app-release.apk Zhizn-${{ needs.version.outputs.name }}.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: Zhizn-*.apk
+
+  windows:
+    needs: [test, version]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: >
+          flutter build windows --release
+          --build-name=${{ needs.version.outputs.name }}
+          --build-number=${{ github.run_number }}
+          --dart-define=CODE_REPO=${{ github.repository }}
+      - name: Установщик
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc /DAppVersion=${{ needs.version.outputs.name }} windows\installer.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: build/installer/Zhizn-Setup-*.exe
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [android, windows, version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: out
+      - name: Что нового
+        run: |
+          f="docs/releases/v${{ needs.version.outputs.name }}.md"
+          if [ -f "$f" ]; then cp "$f" notes.md; else echo "Версия ${{ needs.version.outputs.name }}" > notes.md; fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Жизнь ${{ needs.version.outputs.name }}
+          body_path: notes.md
+          files: out/*
