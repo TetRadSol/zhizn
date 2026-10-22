@@ -63,25 +63,20 @@ jobs:
           cache: true
       - name: Ключ подписи
         env:
-          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # Если секреты перепутаны местами (ключ длинный, пароль короткий) — поменять
-          if [ ${#KEYSTORE} -lt 200 ] && [ ${#PASSWORD} -gt 1000 ]; then
-            T="$KEYSTORE"; KEYSTORE="$PASSWORD"; PASSWORD="$T"
-            echo "::notice::Секреты ANDROID_KEYSTORE_BASE64 и ANDROID_KEY_PASSWORD перепутаны местами — использую наоборот"
+          # Ключ лежит в репозитории зашифрованным (android/app/upload.jks.enc);
+          # для расшифровки нужен только секрет ANDROID_KEY_PASSWORD.
+          PASSWORD=$(printf '%s' "$PASSWORD" | tr -d '[:space:]')
+          if [ -z "$PASSWORD" ]; then
+            echo "::warning::Нет секрета ANDROID_KEY_PASSWORD — APK подписан временным ключом, обновление поверх старой версии не встанет"
+            exit 0
           fi
-          if [ -n "$KEYSTORE" ]; then
-            # Лишние пробелы и переносы строк при копировании не мешают
-            printf '%s' "$KEYSTORE" | tr -cd 'A-Za-z0-9+/=' | base64 -d > android/app/upload.jks || {
-              echo "::error::Секрет ANDROID_KEYSTORE_BASE64 не читается как base64 (длина без пробелов: $(printf '%s' "$KEYSTORE" | tr -cd 'A-Za-z0-9+/=' | wc -c), ожидается 2752). Скопируйте файл ANDROID_KEYSTORE_BASE64.txt целиком."; exit 1; }
-            PASSWORD=$(printf '%s' "$PASSWORD" | tr -d '[:space:]')
-            keytool -list -keystore android/app/upload.jks -storepass "$PASSWORD" >/dev/null 2>&1 || {
-              echo "::error::Ключ не открывается паролем. Отпечатки: ключ $(sha256sum android/app/upload.jks | cut -c1-12) (ожидается 394028648454), base64 $(printf '%s' "$KEYSTORE" | tr -cd 'A-Za-z0-9+/=' | wc -c) символов (ожидается 2752), пароль $(printf '%s' "$PASSWORD" | sha256sum | cut -c1-12) (ожидается 5773b3aa4eed)."; exit 1; }
-            printf 'storeFile=app/upload.jks\nstorePassword=%s\nkeyAlias=zhizn\nkeyPassword=%s\n' "$PASSWORD" "$PASSWORD" > android/key.properties
-          else
-            echo "::warning::Нет секрета ANDROID_KEYSTORE_BASE64 — APK подписан временным ключом, обновление поверх старой версии не встанет"
-          fi
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in android/app/upload.jks.enc -out android/app/upload.jks -pass "pass:$PASSWORD" 2>/dev/null \
+            && keytool -list -keystore android/app/upload.jks -storepass "$PASSWORD" >/dev/null 2>&1 || {
+            echo "::error::Секрет ANDROID_KEY_PASSWORD не подходит (длина ${#PASSWORD}, нужно 24 символа — текст из файла ANDROID_KEY_PASSWORD.txt, а не его название)"
+            exit 1; }
+          printf 'storeFile=app/upload.jks\nstorePassword=%s\nkeyAlias=zhizn\nkeyPassword=%s\n' "$PASSWORD" "$PASSWORD" > android/key.properties
       - run: flutter pub get
       - name: Сборка APK
         shell: bash
