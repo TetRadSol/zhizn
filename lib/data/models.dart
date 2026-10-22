@@ -10,6 +10,10 @@ abstract final class Kinds {
   static const goal = 'goal';
   static const lesson = 'lesson'; // отметки к паре: посещаемость, заметки
   static const dict = 'dict'; // словарь сокращений
+  static const question = 'question'; // вопрос Джарвиса
+  static const busy = 'busy'; // форс-мажор: наряд, сборы
+  static const profile = 'profile'; // профиль Джарвиса (одна запись с id 'profile')
+  static const digest = 'digest'; // итог дня и план от Джарвиса
 }
 
 class Sphere {
@@ -87,6 +91,17 @@ class Task {
   String? get lessonRef => e['lesson'] as String?;
   String? get captureId => e['capture'] as String?;
   int get doneCount => (e['doneCount'] as num?)?.toInt() ?? 0;
+
+  /// Нужные силы: low, mid, high.
+  String? get energy => e['energy'] as String?;
+
+  /// Шаги, на которые Джарвис разбил дело: [{t: текст, d: сделано}].
+  List<Map<String, dynamic>> get steps => ((e['steps'] as List?) ?? const [])
+      .map((x) => x is Map ? x.cast<String, dynamic>() : {'t': '$x', 'd': false})
+      .toList();
+
+  /// Что и почему поменял Джарвис (последнее изменение).
+  String? get jarvisNote => e['jarvis'] as String?;
 
   /// Точный момент начала, если указано время.
   DateTime? get at {

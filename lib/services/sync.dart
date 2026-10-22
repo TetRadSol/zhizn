@@ -10,6 +10,7 @@ import '../data/models.dart';
 import '../data/store.dart';
 import 'lan_crypto.dart';
 import 'life.dart';
+import 'mcp.dart';
 
 const lanPort = 47821;
 const lanDiscoveryPort = 47822;
@@ -216,6 +217,13 @@ class Sync extends ChangeNotifier {
     try {
       final body = await req.fold<List<int>>([], (a, b) => a..addAll(b));
       final path = req.uri.path;
+      // Коннектор Claude Desktop — только с этого же компьютера
+      if (path == '/mcp' && req.method == 'POST') {
+        if (!(req.connectionInfo?.remoteAddress.isLoopback ?? false)) return await _reply(req, const [], status: 403);
+        final resp = Mcp(life).handle(jsonDecode(utf8.decode(body)) as Map<String, dynamic>);
+        req.response.headers.contentType = ContentType.json;
+        return await _reply(req, resp == null ? const [] : utf8.encode(jsonEncode(resp)), status: resp == null ? 202 : 200);
+      }
       if (path == '/pair' && req.method == 'POST') {
         return await _reply(req, utf8.encode(jsonEncode(_pair(jsonDecode(utf8.decode(body)) as Map<String, dynamic>))));
       }

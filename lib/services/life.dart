@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import '../data/models.dart';
 import '../data/store.dart';
 import '../logic/parser.dart';
+import '../logic/planner.dart';
 import '../logic/recurrence.dart';
 import '../logic/schedule.dart';
 
@@ -144,6 +145,92 @@ class Life extends ChangeNotifier {
   List<Entity> get goals => store.ofKind(Kinds.goal).toList();
   List<Entity> get notes => store.ofKind(Kinds.note).toList();
   List<Entity> get journal => store.ofKind(Kinds.journal).toList();
+
+  // ---------- Профиль Джарвиса ----------
+
+  static const profileDefaults = <String, String>{
+    'about': 'Студент 4-го курса, группа 3102 (ФКМ). С 8:00 до 16:00 телефон сдан. '
+        'Учусь в автошколе. Распорядок может смениться в последний момент: наряды, сборы.',
+    'places': 'Дом, ВУЗ, ночёвка в ВУЗе (наряд), город, автошкола, дача, зал. Пара — ВУЗ, наряд — ночёвка в ВУЗе.',
+    'principles': 'Делать как можно раньше: ставить дело в ближайшее свободное окно, а не к сроку. '
+        'Оставлять запас на неожиданное. Сначала срочное и важное.',
+    'goals': 'Закрыть сессию без долгов, получить права, накопить 1000 Br, 100 часов самостоятельной учёбы, иностранный язык.',
+    'tone': 'Дружелюбный активный коуч: замечает, подталкивает, хвалит. Мотивирует, в том числе показывая, '
+        'что будет, если не сделать, — но без упрёков. Подсказывает порядок дел, опрашивая меня. '
+        'Даёт ссылки на короткие видео, как правильно делать.',
+    'wake': '06:30',
+    'sleep': '23:00',
+    'road': '30',
+  };
+
+  String profile(String key) {
+    final v = store.get('profile')?[key];
+    return (v is String && v.isNotEmpty) ? v : (profileDefaults[key] ?? '');
+  }
+
+  void setProfile(String key, String value) => store.update('profile', Kinds.profile, {key: value});
+
+  // ---------- Форс-мажор ----------
+
+  List<({String id, DateTime from, DateTime to, String title})> get busy => [
+    for (final e in store.ofKind(Kinds.busy))
+      if (parseYmd(e['from'] as String?) != null && parseYmd(e['to'] as String?) != null)
+        (id: e.id, from: parseYmd(e['from'] as String)!, to: parseYmd(e['to'] as String)!, title: (e['title'] as String?) ?? 'Занят'),
+  ];
+
+  /// Текущий форс-мажор, если сегодня занят.
+  ({String id, DateTime from, DateTime to, String title})? get busyNow {
+    for (final b in busy) {
+      if (!b.from.isAfter(today) && !b.to.isBefore(today)) return b;
+    }
+    return null;
+  }
+
+  /// Отметить дни занятыми и перенести на день после них дела со сроком внутри.
+  /// Возвращает перенесённые задачи.
+  List<Task> forceMajeure(String title, DateTime from, DateTime to) {
+    store.create(Kinds.busy, {'title': title, 'from': ymd(from), 'to': ymd(to)});
+    final after = dayOf(to).add(const Duration(days: 1));
+    final moved = <Task>[];
+    for (final t in tasks) {
+      final d = t.due;
+      if (t.done || d == null || d.isBefore(dayOf(from)) || d.isAfter(dayOf(to)) || t.repeat != null) continue;
+      store.patch(t.id, {'due': ymd(after), 'time': null, 'jarvis': 'перенесено: $title'});
+      moved.add(t);
+    }
+    return moved;
+  }
+
+  // ---------- План дня ----------
+
+  DayRules get dayRules => DayRules(
+    wake: profile('wake'),
+    sleep: profile('sleep'),
+    campusFrom: store.getKv('quiet_from') ?? '08:00',
+    campusTo: store.getKv('quiet_to') ?? '16:00',
+    campusDays: (store.getKv('quiet_days') ?? '1,2,3,4,5,6').split(',').where((x) => x.isNotEmpty).map(int.parse).toList(),
+    road: int.tryParse(profile('road')) ?? 30,
+  );
+
+  DayPlan dayPlan([DateTime? day]) => planDay(
+    day: day ?? today,
+    now: now,
+    tasks: tasks,
+    lessons: schedule.on(day ?? today),
+    busy: [for (final b in busy) (from: b.from, to: b.to, title: b.title)],
+    rules: dayRules,
+  );
+
+  // ---------- Вопросы и итоги Джарвиса ----------
+
+  List<Entity> get openQuestions =>
+      store.ofKind(Kinds.question).where((q) => q['answer'] == null && q['skipped'] != true).toList()
+        ..sort((a, b) => ((a['created'] as String?) ?? '').compareTo((b['created'] as String?) ?? ''));
+
+  void answer(String questionId, String text) =>
+      store.patch(questionId, {'answer': text, 'answeredAt': DateTime.now().toIso8601String()});
+
+  Entity? digest(DateTime day, String kind) => store.get('digest:${ymd(day)}:$kind');
 
   static int compareTasks(Task a, Task b) {
     final ad = a.due, bd = b.due;

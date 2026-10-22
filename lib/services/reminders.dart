@@ -89,14 +89,16 @@ List<Reminder> planReminders(Life life, DateTime now, {required bool phone, int 
         ladder.add('${left == 1 ? 'завтра' : 'через $left ${_plural(left, 'день', 'дня', 'дней')}'}: ${t.title}');
       }
     }
+    final jarvisMorning = life.digest(day, 'morning')?['text'] as String?;
     final body = [
+      ?jarvisMorning,
       if (parts.isEmpty) 'Свободный день' else parts.join(', '),
       if (first.isNotEmpty) 'Сначала: $first',
       ...ladder.take(3).map((x) => 'Срок $x'),
     ].join('\n');
     out.add(Reminder('morning:${ymd(day)}', _at(day, s.morning), 'План на день', body));
     out.add(Reminder('evening:${ymd(day)}', _at(day, s.evening), 'Итог дня',
-        'Отметьте сделанное и привычки, перенесите остальное на завтра.'));
+        (life.digest(day, 'evening')?['text'] as String?) ?? 'Отметьте сделанное и привычки, перенесите остальное на завтра.'));
     if (day.weekday == s.weeklyDay) {
       final weekAgo = day.subtract(const Duration(days: 7));
       final done = life.tasks.where((t) {
@@ -306,6 +308,12 @@ class Notifier {
       _shown.add(r.key);
       plugin.show(id: r.id, title: r.title, body: r.body, notificationDetails: _details, payload: r.key);
     }
+  }
+
+  /// Показать уведомление сразу (например, о вопросах Джарвиса).
+  Future<void> showNow(String title, String body) async {
+    if (!_ready) return;
+    await plugin.show(id: 7, title: title, body: body, notificationDetails: _details);
   }
 
   void dispose() {

@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../data/models.dart';
 import '../../logic/recurrence.dart';
 import '../../services/services.dart';
 import '../widgets/common.dart';
+import 'jarvis.dart';
 
 /// Открыть задачу. Без id — новая задача.
 Future<void> openTaskEditor(BuildContext context, String? id, {DateTime? due}) {
@@ -60,6 +63,8 @@ class _TaskEditorState extends State<TaskEditor> {
   late String? _prio = _orig?.prio;
   late String? _sphere = _orig?.sphere;
   late Map<String, dynamic>? _repeat = _orig?.repeat;
+  late String? _energy = _orig?.energy;
+  late final List<Map<String, dynamic>> _steps = [...?_orig?.steps.map((s) => {...s})];
 
   bool get _isNew => _orig == null;
 
@@ -78,6 +83,8 @@ class _TaskEditorState extends State<TaskEditor> {
       'prio': _prio,
       'sphere': _sphere,
       'repeat': _repeat,
+      'energy': _energy,
+      'steps': _steps.isEmpty ? null : _steps,
       'draft': false,
     };
     if (_isNew) {
@@ -201,6 +208,18 @@ class _TaskEditorState extends State<TaskEditor> {
               selected: {_prio},
               onSelectionChanged: (s) => setState(() => _prio = s.first),
             ),
+            const _Label('Нужные силы'),
+            SegmentedButton<String?>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: 'low', label: Text('🔋 Мало')),
+                ButtonSegment(value: 'mid', label: Text('🔋🔋 Средне')),
+                ButtonSegment(value: 'high', label: Text('🔋🔋🔋 Много')),
+                ButtonSegment(value: null, label: Text('—')),
+              ],
+              selected: {_energy},
+              onSelectionChanged: (s) => setState(() => _energy = s.first),
+            ),
             const _Label('Сфера'),
             Wrap(spacing: 8, runSpacing: 8, children: [
               for (final s in Sphere.all)
@@ -217,6 +236,23 @@ class _TaskEditorState extends State<TaskEditor> {
                 if (_repeat != null) _due ??= today;
               }),
             ),
+            if (_steps.isNotEmpty) ...[
+              const _Label('Шаги'),
+              for (final st in _steps)
+                CheckboxListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: st['d'] == true,
+                  title: Text('${st['t']}', style: TextStyle(decoration: st['d'] == true ? TextDecoration.lineThrough : null)),
+                  onChanged: (v) => setState(() => st['d'] = v == true),
+                ),
+            ],
+            if (_orig?.jarvisNote != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text('🤖 Джарвис: ${_orig!.jarvisNote}', style: TextStyle(color: cs.primary, fontSize: 13)),
+              ),
             const _Label('Заметки'),
             TextField(
               controller: _notes,
@@ -239,6 +275,16 @@ class _TaskEditorState extends State<TaskEditor> {
                   },
                 ),
               if (!_isNew) TextButton(onPressed: () => _showHistory(context), child: const Text('История')),
+              if (!_isNew && (Platform.isWindows || Platform.isLinux))
+                TextButton(
+                  onPressed: () {
+                    final t = _orig!;
+                    final outer = Navigator.of(context).context;
+                    Navigator.pop(context);
+                    motivationFlow(outer, t);
+                  },
+                  child: const Text('Нет мотивации'),
+                ),
               const Spacer(),
               TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
               const SizedBox(width: 8),

@@ -10,6 +10,7 @@ import '../widgets/capture_bar.dart';
 import '../widgets/common.dart';
 import '../widgets/lesson_tile.dart';
 import '../widgets/task_tile.dart';
+import 'jarvis.dart';
 import 'lock.dart';
 import 'more.dart';
 import 'study.dart';
@@ -24,7 +25,7 @@ class TodayScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([S.life, S.sync, S.updates, S.lock]),
+      listenable: Listenable.merge([S.life, S.sync, S.updates, S.lock, S.jarvis]),
       builder: (context, _) {
         final life = S.life;
         final now = DateTime.now();
@@ -36,6 +37,8 @@ class TodayScreen extends StatelessWidget {
         final doneToday = life.doneToday();
         final habits = life.habits.where((h) => h.activeOn(today)).toList();
         final progress = life.dayProgress();
+        final plan = life.dayPlan();
+        final busy = life.busyNow;
         final cs = Theme.of(context).colorScheme;
 
         return ListView(
@@ -50,6 +53,11 @@ class TodayScreen extends StatelessWidget {
                     Text(dateLong(today), style: TextStyle(color: cs.onSurfaceVariant)),
                   ]),
                 ),
+                IconButton(
+                  tooltip: 'Форс-мажор: наряд, сборы',
+                  icon: const Icon(Icons.flash_on_outlined),
+                  onPressed: () => forceMajeureDialog(context),
+                ),
                 const _SyncIcon(),
               ]),
             ),
@@ -58,6 +66,16 @@ class TodayScreen extends StatelessWidget {
               child: CaptureBar(key: captureKey),
             ),
             ..._banners(context),
+            if (busy != null)
+              _Banner(
+                icon: Icons.flash_on,
+                text: '${busy.title} до ${dayLabel(busy.to)}. Дела с этими сроками перенесены.',
+                action: 'Закончилось',
+                onAction: () => life.store.patch(busy.id, {'to': ymd(today.subtract(const Duration(days: 1)))}),
+              ),
+            const FocusSuggestBanner(),
+            const DigestCard(),
+            const QuestionsCard(),
             // Прогресс дня
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -84,6 +102,7 @@ class TodayScreen extends StatelessWidget {
                 trailing: _toStudy(context),
               ),
             ],
+            DayPlanCard(plan: plan),
             SectionTitle(
               'Дела',
               trailing: TextButton.icon(
@@ -284,9 +303,14 @@ class _Feed extends StatelessWidget {
                   label: Text(f['name'] as String),
                 ),
               for (final id in c.results) _resultChip(context, id),
-              if (c.results.isEmpty && c.files.isNotEmpty)
-                Text('ждёт разбора Джарвисом', style: TextStyle(fontSize: 12, color: cs.outline)),
             ]),
+            const SizedBox(height: 2),
+            Text(
+              c.status == 'jarvis'
+                  ? '🤖 Проверено Джарвисом${((c.e['jarvisNotes'] as List?) ?? const []).isEmpty ? '' : ': ${((c.e['jarvisNotes'] as List).cast<String>()).join('; ')}'}'
+                  : (c.e['noAi'] == true ? 'не для Джарвиса' : 'Разобрано правилами · Джарвис проверит при следующем разборе'),
+              style: TextStyle(fontSize: 12, color: c.status == 'jarvis' ? cs.primary : cs.outline),
+            ),
           ]),
         ),
     ]);

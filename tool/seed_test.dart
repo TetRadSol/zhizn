@@ -29,6 +29,8 @@ void main() {
         store.patch(id, {'m:${ymd(d)}': (i * h.length) % 5 == 0 ? '✗' : ((i + h.length) % 7 == 0 ? '–' : '✓')});
       }
     }
+    store.create(Kinds.question, {'text': 'Как часто стирать постельное?', 'options': ['Раз в неделю', 'Раз в 2 недели']});
+    store.update('digest:${ymd(t)}:morning', Kinds.digest, {'text': 'Начни с реферата по АХДП до ВУЗа — 30 минут хватит на план. Вечером — практикумы, они короткие.'});
     final done = store.create(Kinds.task, {'title': 'Купить продукты', 'due': ymd(t), 'sphere': 'home'});
     life.complete(life.task(done)!);
   });

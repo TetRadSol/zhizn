@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'data/store.dart';
 import 'services/desktop.dart';
+import 'services/jarvis.dart';
 import 'services/life.dart';
 import 'services/lock.dart';
 import 'services/reminders.dart';
@@ -31,6 +32,7 @@ Future<void> main(List<String> args) async {
     notifier: Notifier(life),
     updates: Updates(),
     lock: Lock(store),
+    jarvis: Jarvis(life),
     desktop: desktop,
   );
 
@@ -45,6 +47,12 @@ Future<void> main(List<String> args) async {
     await S.updates.check();
   });
   S.sync.start();
+  if (desktop != null) {
+    S.jarvis.onReport = (r) {
+      if (r.questions > 0) S.notifier.showNow('Джарвис спрашивает', 'Вопросов: ${r.questions}. Ответьте на экране «Сегодня».');
+    };
+    S.jarvis.start();
+  }
   safe(S.life.refreshScheduleIfStale);
   _backup(dir.path, store);
 }

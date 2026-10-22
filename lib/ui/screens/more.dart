@@ -9,7 +9,9 @@ import '../../services/reminders.dart';
 import '../../services/services.dart';
 import '../../services/sync.dart';
 import '../widgets/common.dart';
+import '../../services/jarvis.dart';
 import 'habits.dart';
+import 'jarvis.dart';
 import 'lock.dart';
 import 'today.dart';
 
@@ -28,6 +30,14 @@ class MoreScreen extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: Text('Ещё', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.smart_toy_outlined),
+            title: const Text('Джарвис'),
+            subtitle: Text(Jarvis.lastRun(S.life) == null
+                ? 'Помощник на ноутбуке: разбор записей, вопросы, итог дня'
+                : 'Последний разбор: ${dayLabel(Jarvis.lastRun(S.life)!.at)} · ${Jarvis.lastRun(S.life)!.text}'),
+            onTap: () => open(const JarvisScreen()),
           ),
           ListTile(
             leading: const Icon(Icons.lightbulb_outline),
