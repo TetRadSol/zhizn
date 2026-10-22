@@ -66,6 +66,11 @@ jobs:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          # Если секреты перепутаны местами (ключ длинный, пароль короткий) — поменять
+          if [ ${#KEYSTORE} -lt 200 ] && [ ${#PASSWORD} -gt 1000 ]; then
+            T="$KEYSTORE"; KEYSTORE="$PASSWORD"; PASSWORD="$T"
+            echo "::notice::Секреты ANDROID_KEYSTORE_BASE64 и ANDROID_KEY_PASSWORD перепутаны местами — использую наоборот"
+          fi
           if [ -n "$KEYSTORE" ]; then
             # Лишние пробелы и переносы строк при копировании не мешают
             printf '%s' "$KEYSTORE" | tr -cd 'A-Za-z0-9+/=' | base64 -d > android/app/upload.jks || {
